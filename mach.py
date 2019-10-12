@@ -58,7 +58,7 @@ class Mach:
 
         # Gradients.
         self.E_grad = tf.placeholder(tf.float32, [None, self.c.n_embedding], 'E')
-        self.upstream_gradients = self.optimizer.compute_gradients(loss=self.cross_entropy)
+        self.upstream_gradients = self.optimizer.compute_gradients(loss=self.logits, grad_loss=self.E_grad )
         self.local_gradients = self.optimizer.compute_gradients(loss=self.cross_entropy)
 
         # 1. Upstream Gradient placeholders.
@@ -115,12 +115,12 @@ class Mach:
 
     def Grade(self, grads, spikes):
         cspikes = self.Child(spikes)
-        feeds={
+        feeds= {
                 self.X: batch,
-                self.C: self.Child(batch),
+                self.C: cspikes,
                 self.E_grad: grads
         }
-        fetches = [self.upstream_gradient_values]
+        fetches = [self.upstream_gradients]
         upstream_gradients = self.session.run(fetches, feeds)[0]
         self.grad_queue.put(upstream_gradients)
 
