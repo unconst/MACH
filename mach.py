@@ -1,3 +1,7 @@
+import tensorflow as tf
+import numpy
+import queue
+
 class Config:
     def __init__(self):
         self.n_input = 784  # input layer (28x28 pixels)
@@ -12,6 +16,7 @@ class Config:
         self.batch_size = 128
         self.mach_batch_size = 512
 
+
 class Mach:
 
     def __init__(self, config, mnist):
@@ -24,7 +29,7 @@ class Mach:
         self.gradient_queue = queue.LifoQueue(maxsize=-1)
 
         self.graph = tf.Graph()
-        self.session = tf.Session(graph=self.graph)
+        self.session = tf.compat.v1.Session(graph=self.graph)
         with self.graph.as_default():
             self.input_fn()
             self.model_fn()
@@ -42,32 +47,30 @@ class Mach:
 
     def grad_fn(self):
         # Optimizer.
-        self.optimizer = tf.train.AdamOptimizer(self.c.learning_rate)
+        self.optimizer = tf.compat.v1.train.AdamOptimizer(self.c.learning_rate)
 
-        # Gradients.
-        self.E_grad = tf.placeholder(tf.float32, [None, self.c.n_embedding], 'E')
+        # Loss.
         self.cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y, logits=self.logits))
-        self.upstream_gradients = self.optimizer.compute_gradients(loss=self.cross_entropy)
-        self.local_gradients = self.optimizer.compute_gradients(loss=self.cross_entropy)
 
-        # Secondary metrics.
+        # Secondary loss metrics.
         correct_pred = tf.equal(tf.argmax(self.logits, 1), tf.argmax(self.Y, 1))
         self.accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
-        # Upstream Gradient placeholders.
-        self.upstream_gradient_values = []
+        # Gradients.
+        self.E_grad = tf.placeholder(tf.float32, [None, self.c.n_embedding], 'E')
+        self.upstream_gradients = self.optimizer.compute_gradients(loss=self.cross_entropy)
+        self.local_gradients = self.optimizer.compute_gradients(loss=self.cross_entropy)
+
+        # 1. Upstream Gradient placeholders.
         self.upstream_placeholder_gradients = []
         for gradient_variable in self.upstream_gradients:
             grad_placeholder = tf.placeholder(tf.float32, shape=gradient_variable[1].get_shape())
-            self.upstream_gradient_values.append(gradient_variable[1])
             self.upstream_placeholder_gradients.append((grad_placeholder, gradient_variable[1]))
 
-        # Local Gradient placeholders.
-        self.local_gradient_values = []
+        # 2. Local Gradient placeholders.
         self.local_placeholder_gradients = []
         for gradient_variable in self.local_gradients:
             grad_placeholder = tf.placeholder(tf.float32, shape=gradient_variable[1].get_shape())
-            self.local_gradient_values.append(gradient_variable[1])
             self.local_placeholder_gradients.append((grad_placeholder, gradient_variable[1]))
 
         # Train steps.
@@ -115,53 +118,57 @@ class Mach:
         feeds={
                 self.X: batch,
                 self.C: self.Child(batch),
-                self.E_grad: grads,
-                self.keep_prob: 1.0
+                self.E_grad: grads
         }
         fetches = [self.upstream_gradient_values]
         upstream_gradients = self.session.run(fetches, feeds)[0]
         self.grad_queue.put(upstream_gradients)
 
+    def Perf(self):
+        batch_x, batch_y = self.mnist.train.next_batch(self.c.batch_size)
+        fetches = [self.cross_entropy, self.accuracy]
+        feeds = {self.X: batch_x, self.Y: batch_y, self.C: self.Child(batch_x)}
+        loss, accuracy = self.session.run(fetches,feeds)
+        print("Loss =", str(loss), "\t| Accuracy =", str(accuracy))
 
-    def Train(self):
-        # train on mini batches
-        for i in range(self.c.learn_iterations):
-            batch_step()
+    def Train(self, n):
+        for i in range(n):
+            self.batch_step()
 
     def batch_step(self):
         batch_x, batch_y = self.mnist.train.next_batch(self.c.batch_size)
         feeds={self.X: batch_x, self.Y: batch_y, self.C: self.Child(batch_x)}
-        fetches=self.local_gradients
         gradients = self.session.run(self.local_gradients, feed_dict=feeds)
         self.gradient_queue.put(gradients)
 
-    def learn_step(self):
-        gradients = self.gradient_queue.get()
+    def Learn(self, n):
+        grad_avg = self.grad_avg(n)
+        self.learn_step(grad_avg)
+
+    def grad_avg(self, n):
+        grads = self.gradient_queue.get()
+        gradients_0 = [grad_var[0] for grad_var in grads]
+        for i in range(n-1):
+            gradients_i = [grad_var[0] for grad_var in self.gradient_queue.get()]
+            for j, grad in enumerate(gradients_i):
+                gradients_0[j] += grad
+        for i in range(len(gradients_0)):
+            gradients_0[0] /= n
+        return gradients_0
+
+    def learn_step(self, grads):
         feeds = {}
-        for j, grad_var in enumerate(gradients):
-            feeds[self.local_placeholder_gradients[j][0]] = gradients[j][0]
+        for j, grad_var in enumerate(grads):
+            feeds[self.local_placeholder_gradients[j][0]] = grad_var
+
         self.session.run(self.local_train_step, feeds)
 
-    # # print loss and accuracy (per minibatch)
-    # if i % 100 == 0:
-    #     fetches = [self.cross_entropy, self.accuracy]
-    #     feeds = {self.X: batch_x, self.Y: batch_y, self.C: self.Child(batch_x)}
-    #     minibatch_loss, minibatch_accuracy = self.session.run(fetches,feeds)
-    #     print(
-    #         "Iteration",
-    #         str(i),
-    #         "\t| Loss =",
-    #         str(minibatch_loss),
-    #         "\t| Accuracy =",
-    #         str(minibatch_accuracy)
-    #         )
 
     def Test(self):
         feed_dict = {
                 self.X: self.mnist.test.images,
                 self.Y: self.mnist.test.labels,
-                self.C: self.Child(self.mnist.test.images),
-                self.keep_prob: 1.0
+                self.C: self.Child(self.mnist.test.images)
         }
         test_accuracy = self.session.run(self.accuracy, feed_dict=feed_dict)
         print("\nAccuracy on test set:", test_accuracy)
