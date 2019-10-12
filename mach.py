@@ -60,6 +60,7 @@ class Mach:
         self.E_grad = tf.placeholder(tf.float32, [None, self.c.n_embedding], 'E')
         self.upstream_gradients = self.optimizer.compute_gradients(loss=self.logits, grad_loss=self.E_grad )
         self.local_gradients = self.optimizer.compute_gradients(loss=self.cross_entropy)
+        self.C_grad = tf.gradients(xs=self.C, ys=self.cross_entropy)
 
         # 1. Upstream Gradient placeholders.
         self.upstream_placeholder_gradients = []
@@ -132,14 +133,19 @@ class Mach:
         print("Loss =", str(loss), "\t| Accuracy =", str(accuracy))
 
     def Train(self, n):
+        cgrads_0 = self.batch_step()
         for i in range(n):
-            self.batch_step()
+            cgrads_i = self.batch_step()
+            for j, grad in enumerate(cgrads_i):
+                cgrads_0[j] += grad
+        return cgrads_0
 
     def batch_step(self):
         batch_x, batch_y = self.mnist.train.next_batch(self.c.batch_size)
         feeds={self.X: batch_x, self.Y: batch_y, self.C: self.Child(batch_x)}
-        gradients = self.session.run(self.local_gradients, feed_dict=feeds)
-        self.gradient_queue.put(gradients)
+        gradients = self.session.run([self.local_gradients, self.C_grad], feed_dict=feeds)
+        self.gradient_queue.put(gradients[0])
+        return gradients[1][0]
 
     def Learn(self, n):
         grad_avg = self.grad_avg(n)
