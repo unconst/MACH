@@ -1,9 +1,13 @@
 # MACH
 
-Training bigger models over more iterations is almost always a better when solving some key problems in Machine Learning, for instance image and speech.
+This repository contains the research into (MACH) Multiple Asynchronous Component Hierarchies
 
-It is almost always the case that we can improve the performance of a Machine Learning system by leveraging more computation because it allows us to training bigger models over more iterations.
+The research focuses on using distillation to cut the direct-dependence between layers in very large Neural Networks. The idea is simple, instead of training the entire network concurrently, we train sub-sections asynchronously where each is using an approximation of the previous component to learn from the whole network. This allows section to train continuously, only talking to its direct child and direct parent.
 
-However, as the size of our models get larger, we encounter a locking problem caused by the direct interdependence of many components. Specifically to computer the gradient for a weight in the first layer I must first compute the gradient for every computer in between. This is prohibatively slow as our models become incredibly deep, for instance, as we scale them too biological scale.
+Specifically, we decompose our NN into set of functions, layers or sets of layers as follows. F(x) = f0 o f1 o ... o fn. We augment this network with a set of trainable distillation functions for each component: f1', f2', ... fn'. This way, during a call from a parent each component returns fi o fi+1', instead of the full network. fi o fi+1 o ... o fn.
 
-Our solution is to limit the direct interdependence of all parts of the network by splitting it into smaller standalone components outfitted with their own loss and access to a dataset. Each section is training against its own loss function using the dataset provided. 
+
+To run the training regime for a single component.
+'''
+$ python main.py
+'''
