@@ -172,7 +172,7 @@ def main(hparams):
     # Teacher Accuracy 0.9787
     # Student Accuracy: 0.9749
 
-    # Load dataset and set hparams.n_inputs and hparamsn_targets.
+    # Load dataset and set hparams.n_inputs and hparams.n_targets.
     mnist, hparams = load_data_and_constants(hparams)
 
     # Build graph and session.
