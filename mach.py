@@ -17,6 +17,9 @@ class Config:
         self.mach_batch_size = 512
 
 
+
+
+
 class Mach:
 
     def __init__(self, config, mnist):
