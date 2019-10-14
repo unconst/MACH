@@ -100,15 +100,14 @@ def student(i, x_inputs, hparams):
     return student_embedding
 
 
-def logits(teacher_embedding, student_embedding, hparams):
+def logits(embedding, hparams):
     '''Calculates the teacher and student logits from embeddings.'''
     w = tf.Variable(
         tf.truncated_normal([hparams.n_embedding, hparams.n_targets],
                             stddev=0.1))
     b = tf.Variable(tf.constant(0.1, shape=[hparams.n_targets])),
-    t_logits = tf.add(tf.matmul(teacher_embedding, w), b)
-    s_logits = tf.add(tf.matmul(student_embedding, w), b)
-    return t_logits, s_logits
+    logits = tf.add(tf.matmul(embedding, w), b)
+    return logits
 
 
 def target_loss(logits, targets, hparams):
@@ -126,21 +125,18 @@ def distillation_loss(student_embedding, teacher_embedding, hparams):
     return distillation_loss
 
 
-def add_metrics(i, metrics, student_embedding, teacher_embedding,
-                 teacher_logits, student_logits, teacher_loss, student_loss,
-                 y_targets, x_inputs, hparams):
+def add_metrics(i, metrics, student_embedding,
+                      teacher_embedding, teacher_logits,
+                      teacher_loss, student_loss,
+                      y_targets, x_inputs, hparams):
     '''Builds and returns all model metrics as a dictionary '''
 
     t_correct = tf.equal(tf.argmax(teacher_logits, 1), tf.argmax(y_targets, 1))
     t_accuracy = tf.reduce_mean(tf.cast(t_correct, tf.float32))
 
-    s_correct = tf.equal(tf.argmax(student_logits, 1), tf.argmax(y_targets, 1))
-    s_accuracy = tf.reduce_mean(tf.cast(s_correct, tf.float32))
-
     metrics['tloss_' + str(i)] = teacher_loss
-    metrics['sloss_' + str(i)] = student_loss
     metrics['tacc_' + str(i)] = t_accuracy
-    metrics['sacc_' + str(i)] = s_accuracy
+    metrics['sloss_' + str(i)] = student_loss
 
     return metrics
 
@@ -151,7 +147,7 @@ def training_step(metrics, hparams):
     for i in range(hparams.n_components):
         tf.compat.v1.losses.add_loss(metrics['tloss_' + str(i)])
         tf.compat.v1.losses.add_loss(metrics['sloss_' + str(i)])
-    loss = tf.compat.v1.losses.get_total_loss
+    loss = tf.compat.v1.losses.get_total_loss()
     return tf.compat.v1.train.AdamOptimizer(hparams.learning_rate).minimize(loss)
 
 
@@ -175,16 +171,30 @@ def test(session, mnist, metrics, hparams):
     ''' Tests model. Printing student and teacher accuracy. '''
     feeds = {'inputs:0': mnist.test.images, 'targets:0': mnist.test.labels}
     test_metrics = session.run(metrics, feeds)
+    print("\nResults:")
     for i in range(hparams.n_components):
-        print("\nTeacher_" + str(i) + " accuracy on test set:", test_metrics['tacc_' + str(i)])
-        print("\nStudent_" + str(i) + " accuracy on test set:", test_metrics['sacc_' + str(i)])
+        print("Teacher_" + str(i) + " accuracy on test set:", test_metrics['tacc_' + str(i)])
+        print("Student_" + str(i) + " accuracy on test set:", test_metrics['sacc_' + str(i)])
 
 
 def main(hparams):
 
-    # Best with Defaults:
-    # Teacher Accuracy 0.9787
-    # Student Accuracy: 0.9749
+    # Testing framework for MACHs.
+    # We build our graph as a sequence of components. Each component contains
+    # a teacher model and a student. However, the student is training off the
+    # previous teacher rather than the teacher in the current component.
+    # The teacher uses this distilled student model to pull information from the
+    # previous teacher. Since the distilled model is 'local' we don't need to
+    # run the entire preceding network during inference.
+
+    # Best with Defaults Size = 2; iterations=10000
+    # Teacher_0 accuracy on test set: 0.9802
+    # Teacher_1 accuracy on test set: 0.9803
+
+    # Best with Defaults Size = 3; iterations=10000
+    # Teacher_0 accuracy on test set: 0.9775
+    # Teacher_1 accuracy on test set: 0.979
+    # Teacher_2 accuracy on test set: 0.979
 
     # Load dataset and set hparams.n_inputs and hparamsn_targets.
     mnist, hparams = load_data_and_constants(hparams)
@@ -197,16 +207,20 @@ def main(hparams):
         # Build tensorflow input and target placeholders.
         x_inputs, y_targets = inputs(hparams)
 
-        # Placeholder for the previous component embedding.
+        # Placeholder for the previous component embedding. Set to zeros for the
+        # first component. The prev_teacher will point to the embedding layer
+        # from the previous model in following components.
         prev_teacher = tf.zeros([tf.shape(x_inputs)[0], hparams.n_embedding])
 
         # Stored metrics from each component.
         metrics = {}
 
-        # Build component hierarchy
+        # Build component hierarchy.
         for i in range(hparams.n_components):
 
             # Build the student model, returns the students's embedding
+            # The student model is a FF-NN which trains itself to predict the
+            # embedding from previous model.
             student_embedding = student(i, x_inputs, hparams)
 
             # Calculate the distilled loss between the prev_embedding and the student's
@@ -214,11 +228,11 @@ def main(hparams):
                                              hparams)
 
             # Build the teacher model, returns the teacher's embedding
+            # Note to stop gradient between the teacher and the student.
             teacher_embedding = teacher(i, x_inputs, tf.stop_gradient(student_embedding), hparams)
 
-            # Calculate the teacher and student logits from embeddings.
-            teacher_logits, student_logits = logits(teacher_embedding,
-                                                    student_embedding, hparams)
+            # Calculate the teacher logits from embeddings.
+            teacher_logits = logits(teacher_embedding, hparams)
 
             # Calculate the target loss w.r.t teacher logits.
             teacher_loss = target_loss(teacher_logits, y_targets, hparams)
@@ -226,7 +240,7 @@ def main(hparams):
             # Build and return all model metrics as a dictionary
             metrics = add_metrics(i, metrics, student_embedding,
                                   teacher_embedding, teacher_logits,
-                                  student_logits, teacher_loss, student_loss,
+                                  teacher_loss, student_loss,
                                   y_targets, x_inputs, hparams)
 
             # The teacher's output becomes the next prev_embedding.
@@ -287,6 +301,12 @@ if __name__ == '__main__':
         type=bool,
         help=
         'Print embeddings from each layer. Default trace=False')
+    parser.add_argument(
+        '--stop_grad_for_student',
+        default=False,
+        type=bool,
+        help=
+        'Stop training grad for student learning on logits. Default trace=False')
     parser.add_argument(
         '--t_hidden1',
         default=512,
