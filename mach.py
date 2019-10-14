@@ -2,7 +2,9 @@ import tensorflow as tf
 import numpy
 import queue
 
+
 class Config:
+
     def __init__(self):
         self.n_input = 784  # input layer (28x28 pixels)
         self.n_hidden1 = 512  # 1st hidden layer
@@ -50,43 +52,65 @@ class Mach:
         self.optimizer = tf.compat.v1.train.AdamOptimizer(self.c.learning_rate)
 
         # Loss.
-        self.cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y, logits=self.logits))
+        self.cross_entropy = tf.reduce_mean(
+            tf.nn.softmax_cross_entropy_with_logits_v2(labels=self.Y,
+                                                       logits=self.logits))
 
         # Secondary loss metrics.
         correct_pred = tf.equal(tf.argmax(self.logits, 1), tf.argmax(self.Y, 1))
         self.accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
         # Gradients.
-        self.E_grad = tf.placeholder(tf.float32, [None, self.c.n_embedding], 'E')
-        self.upstream_gradients = self.optimizer.compute_gradients(loss=self.logits, grad_loss=self.E_grad )
-        self.local_gradients = self.optimizer.compute_gradients(loss=self.cross_entropy)
+        self.E_grad = tf.placeholder(tf.float32, [None, self.c.n_embedding],
+                                     'E')
+        self.upstream_gradients = self.optimizer.compute_gradients(
+            loss=self.logits, grad_loss=self.E_grad)
+        self.local_gradients = self.optimizer.compute_gradients(
+            loss=self.cross_entropy)
         self.C_grad = tf.gradients(xs=self.C, ys=self.cross_entropy)
 
         # 1. Upstream Gradient placeholders.
         self.upstream_placeholder_gradients = []
         for gradient_variable in self.upstream_gradients:
-            grad_placeholder = tf.placeholder(tf.float32, shape=gradient_variable[1].get_shape())
-            self.upstream_placeholder_gradients.append((grad_placeholder, gradient_variable[1]))
+            grad_placeholder = tf.placeholder(
+                tf.float32, shape=gradient_variable[1].get_shape())
+            self.upstream_placeholder_gradients.append(
+                (grad_placeholder, gradient_variable[1]))
 
         # 2. Local Gradient placeholders.
         self.local_placeholder_gradients = []
         for gradient_variable in self.local_gradients:
-            grad_placeholder = tf.placeholder(tf.float32, shape=gradient_variable[1].get_shape())
-            self.local_placeholder_gradients.append((grad_placeholder, gradient_variable[1]))
+            grad_placeholder = tf.placeholder(
+                tf.float32, shape=gradient_variable[1].get_shape())
+            self.local_placeholder_gradients.append(
+                (grad_placeholder, gradient_variable[1]))
 
         # Train steps.
-        self.upstream_train_step = self.optimizer.apply_gradients(self.upstream_placeholder_gradients)
-        self.local_train_step = self.optimizer.apply_gradients(self.local_placeholder_gradients)
-
+        self.upstream_train_step = self.optimizer.apply_gradients(
+            self.upstream_placeholder_gradients)
+        self.local_train_step = self.optimizer.apply_gradients(
+            self.local_placeholder_gradients)
 
     def model_fn(self):
         self.model_inputs = tf.concat([self.X, self.C], axis=1)
 
         weights = {
-            'w1': tf.Variable(tf.truncated_normal([self.c.n_model_inputs, self.c.n_hidden1], stddev=0.1)),
-            'w2': tf.Variable(tf.truncated_normal([self.c.n_hidden1, self.c.n_hidden2], stddev=0.1)),
-            'w3': tf.Variable(tf.truncated_normal([self.c.n_hidden2, self.c.n_embedding], stddev=0.1)),
-            'out': tf.Variable(tf.truncated_normal([self.c.n_embedding, self.c.n_output], stddev=0.1)),
+            'w1':
+                tf.Variable(
+                    tf.truncated_normal(
+                        [self.c.n_model_inputs, self.c.n_hidden1], stddev=0.1)),
+            'w2':
+                tf.Variable(
+                    tf.truncated_normal([self.c.n_hidden1, self.c.n_hidden2],
+                                        stddev=0.1)),
+            'w3':
+                tf.Variable(
+                    tf.truncated_normal([self.c.n_hidden2, self.c.n_embedding],
+                                        stddev=0.1)),
+            'out':
+                tf.Variable(
+                    tf.truncated_normal([self.c.n_embedding, self.c.n_output],
+                                        stddev=0.1)),
         }
 
         biases = {
@@ -97,8 +121,10 @@ class Mach:
         }
 
         # Model feature extraction.
-        self.layer_1 = tf.add(tf.matmul(self.model_inputs, weights['w1']), biases['b1'])
-        self.layer_2 = tf.add(tf.matmul(self.layer_1, weights['w2']), biases['b2'])
+        self.layer_1 = tf.add(tf.matmul(self.model_inputs, weights['w1']),
+                              biases['b1'])
+        self.layer_2 = tf.add(tf.matmul(self.layer_1, weights['w2']),
+                              biases['b2'])
         self.E = tf.add(tf.matmul(self.layer_2, weights['w3']), biases['b3'])
 
         # Local logits.
@@ -111,16 +137,16 @@ class Mach:
             return self.child.Spike(batch)
 
     def Spike(self, spikes):
-        feeds={self.X: spikes, self.C: self.Child(spikes), self.keep_prob: 1.0}
+        feeds = {
+            self.X: spikes,
+            self.C: self.Child(spikes),
+            self.keep_prob: 1.0
+        }
         return self.session.run([self.E], feed_dict=feeds)[0]
 
     def Grade(self, grads, spikes):
         cspikes = self.Child(spikes)
-        feeds= {
-                self.X: batch,
-                self.C: cspikes,
-                self.E_grad: grads
-        }
+        feeds = {self.X: batch, self.C: cspikes, self.E_grad: grads}
         fetches = [self.upstream_gradients]
         upstream_gradients = self.session.run(fetches, feeds)[0]
         self.grad_queue.put(upstream_gradients)
@@ -129,7 +155,7 @@ class Mach:
         batch_x, batch_y = self.mnist.train.next_batch(self.c.batch_size)
         fetches = [self.cross_entropy, self.accuracy]
         feeds = {self.X: batch_x, self.Y: batch_y, self.C: self.Child(batch_x)}
-        loss, accuracy = self.session.run(fetches,feeds)
+        loss, accuracy = self.session.run(fetches, feeds)
         print("Loss =", str(loss), "\t| Accuracy =", str(accuracy))
 
     def Train(self, n):
@@ -142,8 +168,9 @@ class Mach:
 
     def batch_step(self):
         batch_x, batch_y = self.mnist.train.next_batch(self.c.batch_size)
-        feeds={self.X: batch_x, self.Y: batch_y, self.C: self.Child(batch_x)}
-        gradients = self.session.run([self.local_gradients, self.C_grad], feed_dict=feeds)
+        feeds = {self.X: batch_x, self.Y: batch_y, self.C: self.Child(batch_x)}
+        gradients = self.session.run([self.local_gradients, self.C_grad],
+                                     feed_dict=feeds)
         self.gradient_queue.put(gradients[0])
         return gradients[1][0]
 
@@ -154,8 +181,10 @@ class Mach:
     def grad_avg(self, n):
         grads = self.gradient_queue.get()
         gradients_0 = [grad_var[0] for grad_var in grads]
-        for i in range(n-1):
-            gradients_i = [grad_var[0] for grad_var in self.gradient_queue.get()]
+        for i in range(n - 1):
+            gradients_i = [
+                grad_var[0] for grad_var in self.gradient_queue.get()
+            ]
             for j, grad in enumerate(gradients_i):
                 gradients_0[j] += grad
         for i in range(len(gradients_0)):
@@ -169,12 +198,11 @@ class Mach:
 
         self.session.run(self.local_train_step, feeds)
 
-
     def Test(self):
         feed_dict = {
-                self.X: self.mnist.test.images,
-                self.Y: self.mnist.test.labels,
-                self.C: self.Child(self.mnist.test.images)
+            self.X: self.mnist.test.images,
+            self.Y: self.mnist.test.labels,
+            self.C: self.Child(self.mnist.test.images)
         }
         test_accuracy = self.session.run(self.accuracy, feed_dict=feed_dict)
         print("\nAccuracy on test set:", test_accuracy)
