@@ -12,6 +12,8 @@ This repository contains the research into what are loosely called MACHs. The at
 
 More formally, a standard Feed forward NN can be defined as a sequence of compositions F(x) = f0 o f1 o ... o fn. We augment each composition with a set of distilled approximations f1', f2', ... fn' which train to approximate the previous. Then during inference each component returns fi = fi o (fi+1' ~= fi+1), instead of the full network. fi = fi o fi+1 o ... o fn.
 
+## Experiments
+
 ### Test 1
 Run the following to test a single teacher and student model on mnist.
 i.e F(x) = f0
