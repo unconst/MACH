@@ -3,7 +3,9 @@
 <img src="assets/mach.png" width="1000" />
 
 
-"In reality, the law always contains less than the fact itself, because it does not reproduce the fact as a whole but only in that aspect of it which is important for us, the rest being intentionally or from necessity omitted." - Ernst Mach
+"In reality, the law always contains less than the fact itself, because it does not reproduce the fact as a whole but only in that aspect of it which is important for us, the rest being intentionally or from necessity omitted."
+
+-- Ernst Mach
 
 ## Introduction
 This repository contains the research into what are loosely called MACHs. The attempt is building a learning component which can be trained in coordination with others, while not being dependent on them during inference or training. The research focuses on using distillation to cut this dependence. The idea is simple, we train each component to distill information from its neighbors rather than be directly connected. This allows each section to train asynchronously, speaks only to its direct neighbors as it trains, while they talk to their neighbors etc etc.
