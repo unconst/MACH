@@ -3,9 +3,9 @@
 <img src="assets/mach.png" width="1000" />
 
 ## Introduction
-This repository contains the research into what are loosely called MACHs. The attempt is building a learning component which can be trained in coordination with others, while not being dependent on them during inference. The research focuses on using distillation to cut this dependence. The idea is simple, we train each component to distill information from its neighbors rather than be directly connected. This allows each section to train asynchronously, during training it speaks to its neighbors as it trains its distilled network, during inference it uses the distilled model.
+This repository contains the research into what are loosely called MACHs. The attempt is building a learning component which can be trained in coordination with others, while not being dependent on them during inference or training. The research focuses on using distillation to cut this dependence. The idea is simple, we train each component to distill information from its neighbors rather than be directly connected. This allows each section to train asynchronously, speaks only to its direct neighbors as it trains, while they talk to their neighbors etc etc.
 
-More formally, if a standard Feed forward NN were defined as a sequence of compositions F(x) = f0 o f1 o ... o fn. We would augment each composition with a set of distilled approximations f1', f2', ... fn'. Then during inference each component returns fi = fi o (fi+1' ~= fi+1), instead of the full network. fi = fi o fi+1 o ... o fn.
+More formally, a standard Feed forward NN can be defined as a sequence of compositions F(x) = f0 o f1 o ... o fn. We augment each composition with a set of distilled approximations f1', f2', ... fn' which train to approximate the previous. Then during inference each component returns fi = fi o (fi+1' ~= fi+1), instead of the full network. fi = fi o fi+1 o ... o fn.
 
 ### Test 1
 Run the following to test a single teacher and student model on mnist.
