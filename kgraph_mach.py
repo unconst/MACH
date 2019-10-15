@@ -32,6 +32,10 @@ def classroom(i, teacher_embeddings, hparams):
         if j != i
     ]
 
+    # Classroom net is a simple add.
+    if hparams.add_class:
+        return tf.math.add_n(in_classroom)
+
     classroom_inputs = tf.concat(in_classroom, axis=1)
     n_classroom_inputs = (hparams.k - 1) * hparams.n_embedding
 
@@ -316,6 +320,10 @@ if __name__ == '__main__':
                         default=2,
                         type=int,
                         help='Size of kgraph. Default k=2')
+    parser.add_argument('--add_class',
+                        default=False,
+                        type=bool,
+                        help='Classroom function is an add. Default add_class=False')
     parser.add_argument(
         '--trace',
         default=False,
