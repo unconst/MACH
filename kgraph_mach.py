@@ -23,10 +23,16 @@ def inputs(hparams):
     return x_inputs, y_targets
 
 
-def classroom(classroom_embeddings, hparams):
+def classroom(i, teacher_embeddings, hparams):
     '''Builds the teacher model, returns the teacher's embedding'''
 
-    classroom_inputs = tf.concat(classroom_embeddings, axis=1)
+    in_classroom = [
+        tf.stop_gradient(embedding)
+        for j, embedding in enumerate(teacher_embeddings)
+        if j != i
+    ]
+
+    classroom_inputs = tf.concat(in_classroom, axis=1)
     n_classroom_inputs = (hparams.k - 1) * hparams.n_embedding
 
     weights = {
@@ -51,7 +57,7 @@ def classroom(classroom_embeddings, hparams):
     }
 
     layer_1 = tf.nn.relu(
-        tf.add(tf.matmul(teacher_inputs, weights['w1']), biases['b1']))
+        tf.add(tf.matmul(classroom_inputs, weights['w1']), biases['b1']))
     layer_2 = tf.nn.relu(tf.add(tf.matmul(layer_1, weights['w2']),
                                 biases['b2']))
     classroom_embedding = tf.nn.relu(
@@ -187,12 +193,9 @@ def test(session, mnist, metrics, hparams):
     feeds = {'inputs:0': mnist.test.images, 'targets:0': mnist.test.labels}
     test_metrics = session.run(metrics, feeds)
     print("\nResults:")
-    for i in range(hparams.n_components):
+    for i in range(hparams.k):
         print("Teacher_" + str(i) + " accuracy on test set:",
               test_metrics['tacc_' + str(i)])
-        print("Student_" + str(i) + " accuracy on test set:",
-              test_metrics['sacc_' + str(i)])
-
 
 def main(hparams):
 
@@ -215,37 +218,48 @@ def main(hparams):
         # Stored metrics from each component.
         metrics = {}
 
+        # We build our set of student models who produce an embedding.
+        # The embedding is trained to approximate remaineder of the network
+        # outputs. The 'classroom'.
         student_embeddings = []
         for i in range(hparams.k):
             s_embedding = student(i, x_inputs, hparams)
             student_embeddings.append(s_embedding)
 
+        # We build here our teacher models. These accept the student model
+        # embeddings as an additional feature.
         teacher_embeddings = []
         for i in range(hparams.k):
+
+            # First cut the gradient to the student model.
             s_embedding = tf.stop_gradient(student_embeddings[i])
+
+            # Build the teacher model using the student embedding.
             t_embedding = teacher(i, x_inputs, s_embedding, hparams)
             teacher_embeddings.append(t_embedding)
 
+            # Build the teacher logits and calculate the target loss.
             teacher_logits = logits(t_embedding, hparams)
             teacher_loss = target_loss(teacher_logits, y_targets, hparams)
-            metrics['tloss_' + str(i)] = teacher_loss
-            tf.compat.v1.losses.add_loss(teacher_loss)
 
+            # Calculate metrics on the teacher model and add relevant losses.
             t_correct = tf.equal(tf.argmax(teacher_logits, 1),
                                  tf.argmax(y_targets, 1))
             t_accuracy = tf.reduce_mean(tf.cast(t_correct, tf.float32))
+            metrics['tloss_' + str(i)] = teacher_loss
             metrics['tacc_' + str(i)] = t_accuracy
+            tf.compat.v1.losses.add_loss(teacher_loss)
 
+        # Build the classroom models, these models project the remaineder
+        # of the network into the embedding size. This allows the student
+        # model to distill them.
         classroom_embeddings = []
-        for i in range(hparams.k)):
-            in_classroom = [
-                tf.stop_gradient(embedding)
-                for j, embedding in enumerate(teacher_embedding)
-                if j != i
-            ]
-            c_embedding = classroom(i, in_classroom, hparams)
+        for i in range(hparams.k):
+            c_embedding = classroom(i, teacher_embeddings, hparams)
+            classroom_embeddings.append(c_embedding)
 
-        for i in range(hparams.k)):
+        # Calculate the student model losses over the classroom.
+        for i in range(hparams.k):
             s_embedding = student_embeddings[i]
             c_embedding = classroom_embeddings[i]
             s_loss = distillation_loss(s_embedding, c_embedding, hparams)

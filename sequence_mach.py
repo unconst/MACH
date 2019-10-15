@@ -177,8 +177,6 @@ def test(session, mnist, metrics, hparams):
     for i in range(hparams.n_components):
         print("Teacher_" + str(i) + " accuracy on test set:",
               test_metrics['tacc_' + str(i)])
-        print("Student_" + str(i) + " accuracy on test set:",
-              test_metrics['sacc_' + str(i)])
 
 
 def main(hparams):
