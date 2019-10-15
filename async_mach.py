@@ -213,7 +213,6 @@ class Mach:
         print("\nAccuracy on test set:", test_accuracy)
 
 
-
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
 if __name__ == "__main__":
