@@ -1,5 +1,6 @@
 # MACH
 
+<img src="assets/mach.png" width="1000" />
 
 ## Introduction
 This repository contains the research into what are loosely called MACHs. The attempt is building a learning component which can be trained in coordination with others, while not being dependent on them during inference. The research focuses on using distillation to cut this dependence. The idea is simple, we train each component to distill information from its neighbors rather than be directly connected. This allows each section to train asynchronously, during training it speaks to its neighbors as it trains its distilled network, during inference it uses the distilled model.
