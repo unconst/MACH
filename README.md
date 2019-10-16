@@ -1,10 +1,32 @@
 # MACH
 
+<img src="assets/mach.png" width="1000" />
+
+
+"In reality, the law always contains less than the fact itself, because it does not reproduce the fact as a whole but only in that aspect of it which is important for us, the rest being intentionally or from necessity omitted."
+
+-- Ernst Mach
 
 ## Introduction
-This repository contains the research into what are loosely called MACHs. The attempt is building a learning component which can be trained in coordination with others, while not being dependent on them during inference. The research focuses on using distillation to cut this dependence. The idea is simple, we train each component to distill information from its neighbors rather than be directly connected. This allows each section to train asynchronously, during training it speaks to its neighbors as it trains its distilled network, during inference it uses the distilled model.
+This repository contains the research into what are loosely called MACHs. The attempt is building a learning component which can be trained in coordination with others, while not being dependent on them during inference or training. The research focuses on using distillation to cut this dependence. The idea is simple, we train each component to distill information from its neighbors rather than be directly connected. This allows each section to train asynchronously, speaks only to its direct neighbors as it trains, while they talk to their neighbors etc etc.
 
-More formally, if a standard Feed forward NN were defined as a sequence of compositions F(x) = f0 o f1 o ... o fn. We would augment each composition with a set of distilled approximations f1', f2', ... fn'. Then during inference each component returns fi = fi o (fi+1' ~= fi+1), instead of the full network. fi = fi o fi+1 o ... o fn.
+More formally, a standard Feed forward NN can be defined as a sequence of compositions F(x) = f0 o f1 o ... o fn. We augment each composition with a set of distilled approximations f1', f2', ... fn' which train to approximate the previous. Then during inference each component returns fi = fi o (fi+1' ~= fi+1), instead of the full network. fi = fi o fi+1 o ... o fn.
+
+
+## Motivation
+
+The ability to train a machine learning model which learns from others but does not depend on them is analogous to the manner in which humans learn in a society of other minds. Yet the collaborative domain in Machine Learning is mostly untouched, even though we know that the majority of human understanding exists outside of a single individual. Regardless, we are interested here by how this characteristic allows us to scale Machine Learning systems both horizontally and laterally and it is a sub-project to BitTensor which is attempting to nest Machine Learning inside a global intelligence market.  
+
+
+## Pull Requests
+
+In the interest of speed, just directly commit to the repo. To make that feasible, try to commit and pull often and keep your work modular as possiblem. Also use [Yapf](https://github.com/google/yapf) for code formatting. You can run the following to format before a commit.
+```
+$ pip install yapf
+$ yapf --style google -r -vv -i .
+```
+
+## Experiments
 
 ### Test 1
 Run the following to test a single teacher and student model on mnist.
