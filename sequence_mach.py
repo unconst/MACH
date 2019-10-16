@@ -1,3 +1,19 @@
+
+"""Sequenced Mach example.
+
+This experiment demonstrates a direct linear sequence of components. Each
+component uses a student model to approximate the emebdding from the previous.
+
+Example:
+        Train the model over 100000 iterations.
+        $ python sequence_mach.py --n_iterations=100000
+
+Todo:
+    * CIFAR
+    * How can we evaluate our assumption that the model is attaining information
+        that it would not usually have?
+"""
+
 import os
 import sys
 import time
@@ -5,7 +21,6 @@ import argparse
 import numpy as np
 import tensorflow as tf
 from tensorflow.examples.tutorials.mnist import input_data
-
 
 def load_data_and_constants(hparams):
     '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''

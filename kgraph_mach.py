@@ -1,3 +1,19 @@
+"""KGraph Mach example.
+
+This experiment demonstrates a fully connected graph of machs each training its
+local student to approximate the remainder of the network.
+
+Example:
+        Train the model over a k graph of size 5.
+        $ python kgraph_mach.py --k=5
+
+Todo:
+    * CIFAR
+    * Tensorboard all metrics
+    * We should be using the fishers information attribution method to evaluate
+    the importance of each neighbor.
+"""
+
 import os
 import sys
 import time
@@ -24,7 +40,7 @@ def inputs(hparams):
 
 
 def classroom(i, teacher_embeddings, hparams):
-    '''Builds the teacher model, returns the teacher's embedding'''
+    '''Builds the classroom model, returns the classroom's embedding'''
 
     in_classroom = [
         tf.stop_gradient(embedding)

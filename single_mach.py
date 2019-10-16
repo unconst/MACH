@@ -1,3 +1,17 @@
+"""Single Mach example.
+
+This experiment demonstrates a single linear model and a student who learns to
+approximate its embedding, we test the resulting network by having the student
+output its error on the test set using the student model.
+
+Example:
+        Train the model over 100000 iterations.
+        $ python single_mach.py --n_iterations=100000
+
+Todo:
+    * CIFAR
+"""
+
 import os
 import sys
 import time

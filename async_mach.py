@@ -7,7 +7,6 @@ import tensorflow as tf
 import numpy
 import queue
 
-
 class Config:
 
     def __init__(self):
@@ -97,6 +96,8 @@ class Mach:
             self.local_placeholder_gradients)
 
     def model_fn(self):
+        '''Builds tensorflow input and targer placeholders.'''
+
         self.model_inputs = tf.concat([self.X, self.C], axis=1)
 
         weights = {
@@ -213,14 +214,70 @@ class Mach:
         print("\nAccuracy on test set:", test_accuracy)
 
 
-mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+def main(hparams):
+    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
-if __name__ == "__main__":
-    c = mach.Config()
-    m = mach.Mach(c, mnist)
+    c = Config()
+    m = Mach(c, mnist)
 
     for i in range(1000):
         m.Train(1)
         m.Learn(1)
         if i % 100 == 0:
             m.Test()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '--batch_size',
+        default=128,
+        type=int,
+        help='The number of examples per batch. Default batch_size=128')
+    parser.add_argument(
+        '--n_iterations',
+        default=10000,
+        type=int,
+        help='The number of training iterations. Default n_iterations=10000')
+    parser.add_argument(
+        '--n_print',
+        default=100,
+        type=int,
+        help='The number of iterations before metrics print. Default n_print=100'
+    )
+    parser.add_argument(
+        '--learning_rate',
+        default=1e-4,
+        type=float,
+        help='Network learning rate. Default learning_rate=1e-4')
+    parser.add_argument(
+        '--n_embedding',
+        default=128,
+        type=int,
+        help=
+        'Size of teacher and student embedding layer. Default n_embedding=128')
+    parser.add_argument(
+        '--t_hidden1',
+        default=512,
+        type=int,
+        help='Size of teacher first layer. Default t_hidden1=512')
+    parser.add_argument(
+        '--t_hidden2',
+        default=256,
+        type=int,
+        help='Size of teacher second layer. Default t_hidden2=256')
+    parser.add_argument(
+        '--s_hidden1',
+        default=512,
+        type=int,
+        help='Size of student first layer. Default s_hidden1=512')
+    parser.add_argument(
+        '--s_hidden2',
+        default=256,
+        type=int,
+        help='Size of student second layer. Default s_hidden2=256')
+
+    hparams = parser.parse_args()
+
+    main(hparams)
