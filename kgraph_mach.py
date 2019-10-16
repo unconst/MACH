@@ -73,10 +73,8 @@ def classroom(i, teacher_embeddings, hparams):
 def teacher(i, x_inputs, student_embedding, hparams):
     '''Builds the teacher model, returns the teacher's embedding'''
 
-    # teacher_inputs = tf.concat([x_inputs, student_embedding], axis=1)
-    # n_teacher_inputs = hparams.n_inputs + hparams.n_embedding
-    teacher_inputs = x_inputs
-    n_teacher_inputs = hparams.n_inputs
+    teacher_inputs = tf.concat([x_inputs, student_embedding], axis=1)
+    n_teacher_inputs = hparams.n_inputs + hparams.n_embedding
 
     weights = {
         'w1':
