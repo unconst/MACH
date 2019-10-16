@@ -215,6 +215,7 @@ def test(session, mnist, metrics, hparams):
         print("Teacher_" + str(i) + " accuracy on test set:",
               test_metrics['tacc_' + str(i)])
 
+
 def main(hparams):
 
     # Load dataset and set hparams.n_inputs and hparamsn_targets.
@@ -334,10 +335,11 @@ if __name__ == '__main__':
                         default=2,
                         type=int,
                         help='Size of kgraph. Default k=2')
-    parser.add_argument('--add_class',
-                        default=False,
-                        type=bool,
-                        help='Classroom function is an add. Default add_class=False')
+    parser.add_argument(
+        '--add_class',
+        default=False,
+        type=bool,
+        help='Classroom function is an add. Default add_class=False')
     parser.add_argument(
         '--trace',
         default=False,

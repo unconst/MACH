@@ -1,13 +1,32 @@
+"""KGraph Mach example.
+
+(TODO) This experiment demonstrates an asynchronous mach which connects itself
+sequentially to other asynchronous machs. Each component trains on its own thead
+it used a LIFO queue to queue pending gradients. It uses the Spike and Grad
+RPC methods to allow other machs to interact with its internal trained model.
+
+Example:
+        Train the model over a sequential asynchronous mach of size k.
+        $ python async_mach.py --k=5
+
+Todo:
+    * Training on self-loop.
+    * Passing gradients between parent and Child
+    * Merging gradients from parent and local loss.
+    * Distillation loss.
+    * CIFAR
+    * Tensorboard all metrics
+    * We should be using the fishers information attribution method to evaluate
+    the importance of each neighbor.
+"""
+
+import numpy
 from tensorflow.examples.tutorials.mnist import input_data
 import tensorflow as tf
-import numpy
-import queue
-
-import tensorflow as tf
-import numpy
 import queue
 
 class Config:
+     """MACH class config object"""
 
     def __init__(self):
         self.n_input = 784  # input layer (28x28 pixels)
@@ -24,8 +43,19 @@ class Config:
 
 
 class Mach:
+     """The summary line for a class docstring should fit on one line.
+
+    An asynchronous mach which connects itself sequentially to other
+    asynchronous machs. Each component trains on its own thead it used a LIFO
+    queue to queue pending gradients. It uses the Spike and Grad RPC methods
+    to allow other machs to interact with its internal trained model.
+
+    Attributes:
+        None.
+    """
 
     def __init__(self, config, mnist):
+        """Init the Mach"""
         self.c = config
         self.mnist = mnist
         self.n_train = self.mnist.train.num_examples  # 55,000
@@ -46,12 +76,15 @@ class Mach:
         self.child = None
 
     def input_fn(self):
+        """Return the graph input placeholders"""
         # Placeholders.
         self.X = tf.placeholder(tf.float32, [None, self.c.n_input], 'X')
         self.Y = tf.placeholder(tf.float32, [None, self.c.n_output], 'Y')
         self.C = tf.placeholder(tf.float32, [None, self.c.n_embedding], 'C')
 
     def grad_fn(self):
+        """Build step and gradient placeholders."""
+
         # Optimizer.
         self.optimizer = tf.compat.v1.train.AdamOptimizer(self.c.learning_rate)
 
@@ -143,6 +176,7 @@ class Mach:
             return self.child.Spike(batch)
 
     def Spike(self, spikes):
+        """Runs the internal graph returning the model output."""
         feeds = {
             self.X: spikes,
             self.C: self.Child(spikes),
@@ -151,6 +185,7 @@ class Mach:
         return self.session.run([self.E], feed_dict=feeds)[0]
 
     def Grade(self, grads, spikes):
+        """Returns the model gradients"""
         cspikes = self.Child(spikes)
         feeds = {self.X: batch, self.C: cspikes, self.E_grad: grads}
         fetches = [self.upstream_gradients]
@@ -158,6 +193,7 @@ class Mach:
         self.grad_queue.put(upstream_gradients)
 
     def Perf(self):
+        """Calculates the performand metrics."""
         batch_x, batch_y = self.mnist.train.next_batch(self.c.batch_size)
         fetches = [self.cross_entropy, self.accuracy]
         feeds = {self.X: batch_x, self.Y: batch_y, self.C: self.Child(batch_x)}
@@ -165,6 +201,7 @@ class Mach:
         print("Loss =", str(loss), "\t| Accuracy =", str(accuracy))
 
     def Train(self, n):
+        """Trains the model for n steps."""
         cgrads_0 = self.batch_step()
         for i in range(n):
             cgrads_i = self.batch_step()
@@ -173,6 +210,7 @@ class Mach:
         return cgrads_0
 
     def batch_step(self):
+        """Runs a single batch through the model."""
         batch_x, batch_y = self.mnist.train.next_batch(self.c.batch_size)
         feeds = {self.X: batch_x, self.Y: batch_y, self.C: self.Child(batch_x)}
         gradients = self.session.run([self.local_gradients, self.C_grad],
@@ -181,10 +219,12 @@ class Mach:
         return gradients[1][0]
 
     def Learn(self, n):
+        """Applies gradients to the model parameters."""
         grad_avg = self.grad_avg(n)
         self.learn_step(grad_avg)
 
     def grad_avg(self, n):
+        """Averages a set of gradients from the queue."""
         grads = self.gradient_queue.get()
         gradients_0 = [grad_var[0] for grad_var in grads]
         for i in range(n - 1):
@@ -198,6 +238,7 @@ class Mach:
         return gradients_0
 
     def learn_step(self, grads):
+        """Applies gradients to the model parameters."""
         feeds = {}
         for j, grad_var in enumerate(grads):
             feeds[self.local_placeholder_gradients[j][0]] = grad_var
@@ -205,6 +246,7 @@ class Mach:
         self.session.run(self.local_train_step, feeds)
 
     def Test(self):
+        """Calculates the test accuracy on the model."""
         feed_dict = {
             self.X: self.mnist.test.images,
             self.Y: self.mnist.test.labels,
