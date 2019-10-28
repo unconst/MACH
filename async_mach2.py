@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import argparse
+import random
 from loguru import logger
 import numpy as np
 import tensorflow as tf
@@ -53,7 +54,7 @@ class Mach:
             self._use_synthetic: False,
         }
         # Compute the target loss from the input and make a training step.
-        fetches = [self._tdgrads, self._accuracy, self._tstep, self._syn_step]
+        fetches = [self._tdgrads, self._accuracy, self._tstep, self._syn_loss, self._syn_step]
         run_output = self._session.run(fetches, feeds)
 
         # Recursively pass the gradients through the graph.
@@ -122,6 +123,18 @@ class Mach:
         # use_synthetic: Flag, use synthetic downstream spikes.
         self._use_synthetic = tf.compat.v1.placeholder(tf.bool, shape=[], name='use_synthetic')
 
+        # Synthetic weights and biases.
+        syn_weights = {
+            'syn_w1': tf.Variable(tf.random.truncated_normal([self._hparams.n_inputs , self._hparams.n_shidden1], stddev=0.1)),
+            'syn_w2': tf.Variable(tf.random.truncated_normal([self._hparams.n_shidden1, self._hparams.n_shidden2], stddev=0.1)),
+            'syn_w3': tf.Variable(tf.random.truncated_normal([self._hparams.n_shidden2, self._hparams.n_embedding], stddev=0.1)),
+        }
+        syn_biases = {
+            'syn_b1': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_shidden1])),
+            'syn_b2': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_shidden2])),
+            'syn_b3': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding])),
+        }
+
         # Weights and biases + Synthetic weights and biases.
         # Each component has one hidden layer. Projection is from the input dimension, concatenated
         # with the embeddings from the previous component.
@@ -130,31 +143,25 @@ class Mach:
             'w2': tf.Variable(tf.random.truncated_normal([self._hparams.n_hidden1, self._hparams.n_hidden2], stddev=0.1)),
             'w3': tf.Variable(tf.random.truncated_normal([self._hparams.n_hidden2, self._hparams.n_embedding], stddev=0.1)),
             'w4': tf.Variable(tf.random.truncated_normal([self._hparams.n_embedding, self._hparams.n_targets], stddev=0.1)),
-
-            'syn_w1': tf.Variable(tf.random.truncated_normal([self._hparams.n_inputs , self._hparams.n_shidden1], stddev=0.1)),
-            'syn_w2': tf.Variable(tf.random.truncated_normal([self._hparams.n_shidden1, self._hparams.n_shidden2], stddev=0.1)),
-            'syn_w3': tf.Variable(tf.random.truncated_normal([self._hparams.n_shidden2, self._hparams.n_embedding], stddev=0.1)),
-        }
+            }
         biases = {
             'b1': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_hidden1])),
             'b2': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_hidden2])),
             'b3': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding])),
             'b4': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_targets])),
-
-            'syn_b1': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_shidden1])),
-            'syn_b2': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_shidden2])),
-            'syn_b3': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding])),
         }
 
         # Syn_embedding: The synthetic input, produced by distilling the child component with a local model.
-        syn_hidden1 = tf.nn.relu(tf.add(tf.matmul(self._spikes, weights['syn_w1']), biases['syn_b1']))
-        syn_hidden2 = tf.nn.relu(tf.add(tf.matmul(syn_hidden1, weights['syn_w2']), biases['syn_b2']))
-        syn_dspikes = tf.add(tf.matmul(syn_hidden2, weights['syn_w3']), biases['syn_b3'])
-        syn_loss = tf.reduce_mean(tf.nn.l2_loss(tf.stop_gradient(self._dspikes) - syn_dspikes))
+        syn_hidden1 = tf.nn.relu(tf.add(tf.matmul(self._spikes, syn_weights['syn_w1']), syn_biases['syn_b1']))
+        syn_hidden2 = tf.nn.relu(tf.add(tf.matmul(syn_hidden1, syn_weights['syn_w2']), syn_biases['syn_b2']))
+        syn_dspikes = tf.add(tf.matmul(syn_hidden2, syn_weights['syn_w3']), syn_biases['syn_b3'])
+        #syn_dspikes = tf.Print(syn_dspikes, [self._dspikes, syn_dspikes], summarize=100000)
+        self._syn_loss = tf.reduce_mean(tf.nn.l2_loss(tf.stop_gradient(self._dspikes) - syn_dspikes))
+
 
         # Switch between synthetic embedding or true_embedding
         dspikes = tf.cond(tf.equal(self._use_synthetic, tf.constant(True)),
-                              true_fn=lambda: syn_dspikes,
+                              true_fn=lambda: tf.stop_gradient(syn_dspikes),
                               false_fn=lambda: self._dspikes)
 
         # Embedding: Apply the hidden layer to the spikes and embeddings from the previous component.
@@ -178,7 +185,7 @@ class Mach:
         optimizer = tf.compat.v1.train.AdamOptimizer(1e-4)
 
         # syn_grads: Here, we compute the gradient terms for the synthetic inputs.
-        self._syn_grads = optimizer.compute_gradients(loss=syn_loss, var_list=tf.compat.v1.trainable_variables())
+        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss, var_list=list(syn_weights.values()) + list(syn_biases.values()))
 
         # Embedding grads: Here, we compute the gradient terms for the embedding with respect
         # to the gradients passed from the parent (a.k.a egrads). Dgrads is the gradient for
@@ -222,8 +229,8 @@ def main(hparams):
         batch_x, batch_y = mnist.train.next_batch(hparams.batch_size)
         parent.train(i, batch_x, batch_y)
         if i % 100 == 0:
-            print (parent.train(i, batch_x, batch_y))
-            print (parent.test(mnist.test.images, mnist.test.labels))
+            logger.info('training {}', parent.train(i, batch_x, batch_y))
+            logger.info('validation {}', parent.test(mnist.test.images, mnist.test.labels))
 
 
 if __name__ == "__main__":
