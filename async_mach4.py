@@ -23,11 +23,10 @@ def next_nounce():
 
 class Mach:
 
-    def __init__(self, name, hparams, child=None):
+    def __init__(self, name, hparams):
 
         self.name = name
         self._mnist, self._hparams = load_data_and_constants(hparams)
-        self._child = child
         self._mem = {}
         self._graph = tf.Graph()
         self._file_writer = tf.compat.v1.summary.FileWriter(self._hparams.log_dir + '/node_' + str(self.name))
@@ -36,6 +35,8 @@ class Mach:
             self._model_fn()
             self._session.run(tf.compat.v1.global_variables_initializer())
 
+    def set_children(self, children):
+        self._children = children
 
     def start(self):
         self._running = True
@@ -292,6 +293,11 @@ if __name__ == "__main__":
         default=128,
         type=int,
         help='Size of embedding between components. Default n_embedding=128')
+    parser.add_argument(
+        '--n_children',
+        default=2,
+        type=int,
+        help='The number of children in the graph. Default n_children=2')
     parser.add_argument(
         '--n_components',
         default=2,
