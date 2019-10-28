@@ -17,6 +17,9 @@ def load_data_and_constants(hparams):
     hparams.n_targets = 10
     return mnist, hparams
 
+def next_nounce():
+    return random.randint(0, 1000000000)
+
 class Mach:
 
     def __init__(self, hparams, child=None):
@@ -39,14 +42,19 @@ class Mach:
         }
         return self._session.run(self._accuracy, feeds)
 
-    def train(self, nounce, spikes, targets):
+    def train(self, spikes, targets):
         # Computes the output for this node with respect to input spikes.
         # Calculates a target loss. Computes local and downstream gradients from
         # this loss. Send the downstream gradients to children and uses the local
         # gradients to apply a step.
+        nounce = next_nounce()
 
         # Query child with increased depth.
-        dspikes = self._child.spike(nounce, spikes, 0)
+        if self._child:
+            dspikes = self._child.spike(nounce, spikes, 0)
+        else:
+            dspikes = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
+
         feeds = {
             self._spikes: spikes,
             self._dspikes: dspikes,
@@ -58,17 +66,18 @@ class Mach:
         run_output = self._session.run(fetches, feeds)
 
         # Recursively pass the gradients through the graph.
-        self._child.grade(nounce, spikes, run_output[0])
+        if self._child:
+            self._child.grade(nounce, spikes, run_output[0], 0)
 
         # Return the batch accuracy.
         return run_output[1]
 
-    def spike(self, nounce, spikes, depth=0):
+    def spike(self, nounce, spikes, depth):
 
         # Check spike depth and children.
         if self._child and (depth < hparams.max_depth):
             # Query child with increased depth.
-            dspikes = self._child.spike(nounce, spikes, depth = depth + 1)
+            dspikes = self._child.spike(nounce, spikes, depth + 1)
             self._mem[nounce] = dspikes
             feeds = {
                 self._spikes: spikes,
@@ -91,7 +100,7 @@ class Mach:
             return self._session.run(self._embedding, feeds)
 
 
-    def grade(self, nounce, spikes, grads):
+    def grade(self, nounce, spikes, grads, depth):
         # Computes the gradients for the local node as well as the gradients
         # for its children. Applies the gradients to the local node and sends the
         # children gradients downstream.
@@ -104,9 +113,9 @@ class Mach:
         del self._mem[nounce]
         # Compute gradients for the children and apply the local step.
         dgrads = self._session.run([self._dgrads, self._estep], feeds)[0]
-        if self._child:
+        if self._child and (depth < hparams.max_depth):
             # Recursively send the gradiets to the children.
-            self._child.grade(nounce, spikes, dgrads)
+            self._child.grade(nounce, spikes, dgrads, depth + 1)
 
     def _model_fn(self):
 
@@ -225,12 +234,17 @@ def main(hparams):
 
     # Training loop.
     parent = components[hparams.n_components-1]
-    for i in range(hparams.n_iterations):
-        batch_x, batch_y = mnist.train.next_batch(hparams.batch_size)
-        parent.train(i, batch_x, batch_y)
-        if i % 100 == 0:
-            logger.info('training {}', parent.train(i, batch_x, batch_y))
-            logger.info('validation {}', parent.test(mnist.test.images, mnist.test.labels))
+    for step in range(hparams.n_iterations):
+
+        for k in range(hparams.n_components):
+            batch_x, batch_y = mnist.train.next_batch(hparams.batch_size)
+            components[k].train(batch_x, batch_y)
+
+        if step % hparams.n_print == 0:
+            for j in range(hparams.n_components):
+                train_acc = components[j].train(batch_x, batch_y)
+                val_acc = components[j].test(mnist.test.images, mnist.test.labels)
+                logger.info('{}: train {}, validation {}', j, train_acc, val_acc)
 
 
 if __name__ == "__main__":
@@ -241,6 +255,11 @@ if __name__ == "__main__":
         default=50,
         type=int,
         help='The number of examples per batch. Default batch_size=128')
+    parser.add_argument(
+        '--learning_rate',
+        default=1e-5,
+        type=float,
+        help='Component learning rate. Default learning_rate=1e-4')
     parser.add_argument(
         '--n_embedding',
         default=128,
@@ -278,9 +297,9 @@ if __name__ == "__main__":
         help='Size of synthetic model hidden layer 2. Default n_shidden2=512')
     parser.add_argument(
         '--max_depth',
-        default=512,
+        default=2,
         type=int,
-        help='Depth at which the synthetic inputs are used. Default max_depth=1')
+        help='Depth at which the synthetic inputs are used. Default max_depth=2')
     parser.add_argument(
         '--n_print',
         default=100,
