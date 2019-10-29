@@ -21,7 +21,7 @@ def load_data_and_constants(hparams):
 def next_nounce():
     return random.randint(0, 1000000000)
 
-class Mach:
+class Component:
 
     def __init__(self, name, hparams):
 
@@ -57,7 +57,7 @@ class Mach:
             self._train(batch_x, batch_y)
             if step % hparams.n_print == 0:
                 train_acc = self._train(batch_x, batch_y)
-                val_acc = self._test(self._mnist.test.images, self._mnist.test.labels)
+                val_acc = self._test(batch_x, batch_y)
                 summary = tf.Summary(value=[
                     tf.Summary.Value(tag="accuracy", simple_value=val_acc),
                 ])
@@ -178,6 +178,19 @@ class Mach:
         # use_synthetic: Flag, use synthetic downstream spikes.
         self._use_synthetic = tf.compat.v1.placeholder(tf.bool, shape=[], name='use_synthetic')
 
+
+        # Joiner weights and biases.
+        jn_weights = {
+            'jn_w1': tf.Variable(tf.random.truncated_normal([self._hparams.n_embedding * self._hparams.n_children, self._hparams.n_jhidden1], stddev=0.1)),
+            'jn_w2': tf.Variable(tf.random.truncated_normal([self._hparams.n_jhidden1, self._hparams.n_jhidden2], stddev=0.1)),
+            'jn_w3': tf.Variable(tf.random.truncated_normal([self._hparams.n_jhidden2, self._hparams.n_embedding], stddev=0.1)),
+        }
+        jn_biases = {
+            'jn_b1': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_jhidden1])),
+            'jn_b2': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_jhidden2])),
+            'jn_b3': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding])),
+        }
+
         # Synthetic weights and biases.
         syn_weights = {
             'syn_w1': tf.Variable(tf.random.truncated_normal([self._hparams.n_inputs , self._hparams.n_shidden1], stddev=0.1)),
@@ -190,9 +203,7 @@ class Mach:
             'syn_b3': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding])),
         }
 
-        # Weights and biases + Synthetic weights and biases.
-        # Each component has one hidden layer. Projection is from the input dimension, concatenated
-        # with the embeddings from the previous component.
+        # Model weights and biases
         weights = {
             'w1': tf.Variable(tf.random.truncated_normal([self._hparams.n_inputs + self._hparams.n_embedding, self._hparams.n_hidden1], stddev=0.1)),
             'w2': tf.Variable(tf.random.truncated_normal([self._hparams.n_hidden1, self._hparams.n_hidden2], stddev=0.1)),
@@ -206,29 +217,31 @@ class Mach:
             'b4': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_targets])),
         }
 
-        # Downstream network.
-        dspikes_sum = tf.add_n(self._dspikes)
+        # Joiner network.
+        if self._hparams.use_joiner_network:
+            dspikes_concat = tf.concat(self._dspikes, axis=1)
+            jn_hidden1 = tf.nn.relu(tf.add(tf.matmul(dspikes_concat, jn_weights['jn_w1']), jn_biases['jn_b1']))
+            jn_hidden2 = tf.nn.relu(tf.add(tf.matmul(jn_hidden1, jn_weights['jn_w2']), jn_biases['jn_b2']))
+            jn_embedding = tf.add(tf.matmul(jn_hidden2, jn_weights['jn_w3']), jn_biases['jn_b3'])
+        else:
+            jn_embedding = tf.add_n(self._dspikes)
 
-        # Syn_embedding: The synthetic input, produced by distilling the child component with a local model.
+        # Synthetic network.
         syn_hidden1 = tf.nn.relu(tf.add(tf.matmul(self._spikes, syn_weights['syn_w1']), syn_biases['syn_b1']))
         syn_hidden2 = tf.nn.relu(tf.add(tf.matmul(syn_hidden1, syn_weights['syn_w2']), syn_biases['syn_b2']))
-        syn_dspikes = tf.add(tf.matmul(syn_hidden2, syn_weights['syn_w3']), syn_biases['syn_b3'])
-        #syn_dspikes = tf.Print(syn_dspikes, [self._dspikes, syn_dspikes], summarize=100000)
-        self._syn_loss = tf.reduce_mean(tf.nn.l2_loss(tf.stop_gradient(dspikes_sum) - syn_dspikes))
-        tf.compat.v1.summary.scalar("syn_loss", self._syn_loss)
+        syn_embedding = tf.add(tf.matmul(syn_hidden2, syn_weights['syn_w3']), syn_biases['syn_b3'])
+        self._syn_loss = tf.reduce_mean(tf.nn.l2_loss(tf.stop_gradient(jn_embedding) - syn_embedding))
 
-        # Switch between synthetic embedding or true_embedding
-        dspikes = tf.cond(tf.equal(self._use_synthetic, tf.constant(True)),
-                              true_fn=lambda: tf.stop_gradient(syn_dspikes),
-                              false_fn=lambda: dspikes_sum)
+        # Switch between Synthetic embedding and Joiner embedding.
+        input_embedding = tf.cond(tf.equal(self._use_synthetic, tf.constant(True)),
+                              true_fn=lambda: tf.stop_gradient(syn_embedding),
+                              false_fn=lambda: jn_embedding)
 
-        # Embedding: Apply the hidden layer to the spikes and embeddings from the previous component.
-        # The embedding is the output for this component passed to its parents.
-        input_layer = tf.concat([self._spikes, dspikes], axis=1)
+        # Embedding Network.
+        input_layer = tf.concat([self._spikes, input_embedding], axis=1)
         hidden_layer1 = tf.nn.relu(tf.add(tf.matmul(input_layer, weights['w1']), biases['b1']))
         hidden_layer2 = tf.nn.relu(tf.add(tf.matmul(hidden_layer1, weights['w2']), biases['b2']))
         self._embedding = tf.nn.relu(tf.add(tf.matmul(hidden_layer2, weights['w3']), biases['b3']))
-
 
         # Target: Apply a softmax over the embeddings. This is the loss from the local network.
         # The loss on the target and the loss from the parent averaged.
@@ -269,34 +282,37 @@ class Mach:
         self._tstep = optimizer.apply_gradients(self._tlgrads)
 
 
-def main(hparams):
-    assert(hparams.n_components >= hparams.n_children + 1)
-
+def build_and_components(hparams):
     # Build async components.
     components = []
     for i in range(hparams.n_components):
-        components.append(Mach(i, hparams))
+        components.append(Component(i, hparams))
 
+def connect_components(hparams, components):
     for i in range(hparams.n_components):
         k = 0
-
         choice = random.sample(range(hparams.n_components), hparams.n_children)
         logger.info('node {}, choice:{}', i, choice)
         for el in choice:
             components[i].set_child(k, components[el])
             k += 1
 
+def main(hparams):
+    assert(hparams.n_components >= hparams.n_children + 1)
+
+    components = build_and_components(hparams)
+    connect_components(hparams, components)
+
     try:
-        for i in range(hparams.n_components):
-            components[i].start()
         logger.info('Begin wait on main...')
+        for component in components:
+            component.start()
         while True:
             time.sleep(5)
     except:
         logger.debug('tear down.')
-        for i in range(hparams.n_components):
-            components[i].stop()
-
+        for component in components:
+            component.stop()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -308,7 +324,7 @@ if __name__ == "__main__":
         help='The number of examples per batch. Default batch_size=128')
     parser.add_argument(
         '--learning_rate',
-        default=1e-5,
+        default=1e-4,
         type=float,
         help='Component learning rate. Default learning_rate=1e-4')
     parser.add_argument(
@@ -351,6 +367,21 @@ if __name__ == "__main__":
         default=512,
         type=int,
         help='Size of synthetic model hidden layer 2. Default n_shidden2=512')
+    parser.add_argument(
+        '--use_joiner_network',
+        default=False,
+        type=bool,
+        help='Do we combine downstream spikes using a trainable network. Default use_joiner_network=False')
+    parser.add_argument(
+        '--n_jhidden1',
+        default=512,
+        type=int,
+        help='Size of Joiner model hidden layer 1. Default n_shidden1=512')
+    parser.add_argument(
+        '--n_jhidden2',
+        default=512,
+        type=int,
+        help='Size of Joinermodel hidden layer 2. Default n_shidden2=512')
     parser.add_argument(
         '--max_depth',
         default=1,
