@@ -28,6 +28,7 @@ class Mach:
         self.name = name
         self._mnist, self._hparams = load_data_and_constants(hparams)
         self._mem = {}
+        self._children = [None for _ in range(self._hparams.n_children)]
         self._graph = tf.Graph()
         self._file_writer = tf.compat.v1.summary.FileWriter(self._hparams.log_dir + '/node_' + str(self.name))
         self._session = tf.compat.v1.Session(graph=self._graph)
@@ -35,8 +36,8 @@ class Mach:
             self._model_fn()
             self._session.run(tf.compat.v1.global_variables_initializer())
 
-    def set_children(self, children):
-        self._children = children
+    def set_child(self, index, child):
+        self._children[index] = child
 
     def start(self):
         self._running = True
@@ -66,13 +67,14 @@ class Mach:
             step+=1
 
     def _test(self, spikes, targets):
-        dspikes = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
+        dspikes = self._get_dspikes(None, spikes, 0, do_spike=False)
         feeds = {
             self._spikes: spikes,
-            self._dspikes: dspikes,
             self._targets: targets,
             self._use_synthetic: True,
         }
+        for i, dspike in enumerate(dspikes):
+            feeds[self._dspikes[i]] = dspike
         return self._session.run(self._accuracy, feeds)
 
     def _train(self, spikes, targets):
@@ -83,72 +85,81 @@ class Mach:
         nounce = next_nounce()
 
         # Query child with increased depth.
-        if self._child:
-            dspikes = self._child.spike(nounce, spikes, 0)
-        else:
-            dspikes = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
-
+        dspikes = self._get_dspikes(nounce, spikes, 0)
         feeds = {
             self._spikes: spikes,
-            self._dspikes: dspikes,
             self._targets: targets,
             self._use_synthetic: False,
         }
+        for i, dspike in enumerate(dspikes):
+            feeds[self._dspikes[i]] = dspike
+
         # Compute the target loss from the input and make a training step.
         fetches = [self._tdgrads, self._accuracy, self._tstep, self._syn_loss, self._syn_step]
         run_output = self._session.run(fetches, feeds)
 
         # Recursively pass the gradients through the graph.
-        if self._child:
-            self._child.grade(nounce, spikes, run_output[0], 0)
+        for i in range(self._hparams.n_children):
+            self._children[i].grade(nounce, spikes, run_output[0][i][0], 0)
 
         # Return the batch accuracy.
         return run_output[1]
 
+    def _get_dspikes(self, nounce, spikes, depth, do_spike=True):
+        dspikes = []
+        for child in self._children:
+            if child and do_spike:
+                dspikes.append(child.spike(nounce, spikes, depth + 1))
+            else:
+                dspikes.append(np.zeros((np.shape(spikes)[0], self._hparams.n_embedding)))
+        return dspikes
+
     def spike(self, nounce, spikes, depth):
-
-        # Check spike depth and children.
-        if self._child and (depth < hparams.max_depth):
-            # Query child with increased depth.
-            dspikes = self._child.spike(nounce, spikes, depth + 1)
-            self._mem[nounce] = dspikes
-            feeds = {
-                self._spikes: spikes,
-                self._dspikes: dspikes,
-                self._use_synthetic: False,
-            }
-            # Return Embedding and use dspikes to train the synthetic input.
-            embedding = self._session.run([self._embedding, self._syn_step], feeds)[0]
-            return embedding
-
+        if nounce in self._mem:
+            return np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
         else:
-            # Return using synthetic inputs as input to this component.
-            dspikes = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
-            self._mem[nounce] = dspikes
-            feeds = {
-                self._spikes: spikes,
-                self._dspikes: dspikes,
-                self._use_synthetic: True,
-            }
-            return self._session.run(self._embedding, feeds)
+            self._mem[nounce] = {'spikes': spikes}
+
+        dspikes = self._get_dspikes(nounce, spikes, depth)
+        self._mem[nounce]['dspikes'] = dspikes
+
+        feeds = {self._spikes: spikes}
+        for i, dspike in enumerate(dspikes):
+            feeds[self._dspikes[i]] = dspike
+
+        if (depth < hparams.max_depth):
+            feeds[self._use_synthetic] = False
+            embedding = self._session.run([self._embedding, self._syn_step], feeds)[0]
+        else:
+            feeds[self._use_synthetic] = True
+            embedding = self._session.run(self._embedding, feeds)
+
+        self._mem[nounce]['embedding'] = embedding
+        return embedding
 
 
     def grade(self, nounce, spikes, grads, depth):
+        if nounce not in self._mem:
+            return
+
         # Computes the gradients for the local node as well as the gradients
         # for its children. Applies the gradients to the local node and sends the
         # children gradients downstream.
         feeds = {
-            self._spikes: spikes,
+            self._spikes: self._mem[nounce]['spikes'],
             self._egrads: grads,
-            self._dspikes: self._mem[nounce],
             self._use_synthetic: False
         }
+        for i, dspike in enumerate(self._mem[nounce]['dspikes']):
+            feeds[self._dspikes[i]] = dspike
+
         del self._mem[nounce]
         # Compute gradients for the children and apply the local step.
-        dgrads = self._session.run([self._dgrads, self._estep], feeds)[0]
-        if self._child and (depth < hparams.max_depth):
-            # Recursively send the gradiets to the children.
-            self._child.grade(nounce, spikes, dgrads, depth + 1)
+        dgrads = self._session.run(self._dgrads + [self._estep], feeds)
+
+        if depth < hparams.max_depth:
+            for i in range(self._hparams.n_children):
+                self._children[i].grade(nounce, spikes, dgrads[i][0], depth + 1)
 
     def _model_fn(self):
 
@@ -157,7 +168,9 @@ class Mach:
         self._spikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_inputs], 's')
         # Dspikes: inputs from previous component. Size is the same as the embeddings produced
         # by this component.
-        self._dspikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding], 'd')
+        self._dspikes = []
+        for _ in range(self._hparams.n_children):
+            self._dspikes.append(tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding], 'd'))
         # Egrads: Gradient for this components embedding, passed by a parent.
         self._egrads = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding], 'g')
         # Targets: Supervised signals used during training and testing.
@@ -193,18 +206,21 @@ class Mach:
             'b4': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_targets])),
         }
 
+        # Downstream network.
+        dspikes_sum = tf.add_n(self._dspikes)
+
         # Syn_embedding: The synthetic input, produced by distilling the child component with a local model.
         syn_hidden1 = tf.nn.relu(tf.add(tf.matmul(self._spikes, syn_weights['syn_w1']), syn_biases['syn_b1']))
         syn_hidden2 = tf.nn.relu(tf.add(tf.matmul(syn_hidden1, syn_weights['syn_w2']), syn_biases['syn_b2']))
         syn_dspikes = tf.add(tf.matmul(syn_hidden2, syn_weights['syn_w3']), syn_biases['syn_b3'])
         #syn_dspikes = tf.Print(syn_dspikes, [self._dspikes, syn_dspikes], summarize=100000)
-        self._syn_loss = tf.reduce_mean(tf.nn.l2_loss(tf.stop_gradient(self._dspikes) - syn_dspikes))
+        self._syn_loss = tf.reduce_mean(tf.nn.l2_loss(tf.stop_gradient(dspikes_sum) - syn_dspikes))
         tf.compat.v1.summary.scalar("syn_loss", self._syn_loss)
 
         # Switch between synthetic embedding or true_embedding
         dspikes = tf.cond(tf.equal(self._use_synthetic, tf.constant(True)),
                               true_fn=lambda: tf.stop_gradient(syn_dspikes),
-                              false_fn=lambda: self._dspikes)
+                              false_fn=lambda: dspikes_sum)
 
         # Embedding: Apply the hidden layer to the spikes and embeddings from the previous component.
         # The embedding is the output for this component passed to its parents.
@@ -233,13 +249,13 @@ class Mach:
         # to the gradients passed from the parent (a.k.a egrads). Dgrads is the gradient for
         # the downstream component (child) and elgrads are the gradient terms for the the local
         # FFNN.
-        self._dgrads = optimizer.compute_gradients(loss=self._embedding, var_list=[self._dspikes], grad_loss=self._egrads)[0][0]
+        self._dgrads = optimizer.compute_gradients(loss=self._embedding, var_list=self._dspikes, grad_loss=self._egrads)
         self._elgrads = optimizer.compute_gradients(loss=self._embedding, var_list=tf.compat.v1.trainable_variables(), grad_loss=self._egrads)
 
         # Gradients from target: Here, we compute the gradient terms for the downstream child and
         # the local variables but with respect to the target loss. These get sent downstream and used to
         # optimize the local variables.
-        self._tdgrads = optimizer.compute_gradients(loss=target_loss, var_list=[self._dspikes])[0][0]
+        self._tdgrads = optimizer.compute_gradients(loss=target_loss, var_list=self._dspikes)
         self._tlgrads = optimizer.compute_gradients(loss=target_loss, var_list=tf.compat.v1.trainable_variables())
 
         # Syn step: Train step which applies the synthetic input grads to the synthetic input model.
@@ -254,14 +270,21 @@ class Mach:
 
 
 def main(hparams):
+    assert(hparams.n_components >= hparams.n_children + 1)
 
     # Build async components.
     components = []
     for i in range(hparams.n_components):
-        if i == 0:
-            components.append(Mach(i, hparams))
-        else:
-            components.append(Mach(i, hparams, components[i-1]))
+        components.append(Mach(i, hparams))
+
+    for i in range(hparams.n_components):
+        k = 0
+
+        choice = random.sample(range(hparams.n_components), hparams.n_children)
+        logger.info('node {}, choice:{}', i, choice)
+        for el in choice:
+            components[i].set_child(k, components[el])
+            k += 1
 
     try:
         for i in range(hparams.n_components):
