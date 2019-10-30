@@ -150,7 +150,8 @@ class MACH:
 
         if self._hparams.trace:
             for i, dspk in enumerate(dspikes):
-                logger.info("{} <- [{}{}]", self.name, self._children[i].name, dspk)
+                logger.info("{} <- [{}{}]", self.name, self._children[i].name,
+                            dspk)
 
         feeds = {
             self._spikes: spikes,
@@ -246,15 +247,16 @@ class MACH:
         }
         jn_biases = {
             'jn_b1':
-                tf.Variable(tf.constant(0.01, shape=[self._hparams.n_jhidden1])),
+                tf.Variable(tf.constant(0.01,
+                                        shape=[self._hparams.n_jhidden1])),
             'jn_b2':
-                tf.Variable(tf.constant(0.01, shape=[self._hparams.n_jhidden2])),
+                tf.Variable(tf.constant(0.01,
+                                        shape=[self._hparams.n_jhidden2])),
             'jn_b3':
                 tf.Variable(tf.constant(0.01,
                                         shape=[self._hparams.n_embedding])),
         }
         jn_vars = list(jn_weights.values()) + list(jn_biases.values())
-
 
         # Synthetic weights and biases.
         syn_weights = {
@@ -284,7 +286,6 @@ class MACH:
                                         shape=[self._hparams.n_embedding])),
         }
         syn_vars = list(syn_weights.values()) + list(syn_biases.values())
-
 
         # Model weights and biases
         l_weights = {
@@ -366,7 +367,8 @@ class MACH:
             tf.add(tf.matmul(hidden_layer2, l_weights['w3']), l_biases['b3']))
 
         # Target: softmax cross entropy over local network embeddings.
-        logits = tf.add(tf.matmul(self._embedding, l_weights['w4']), l_biases['b4'])
+        logits = tf.add(tf.matmul(self._embedding, l_weights['w4']),
+                        l_biases['b4'])
         target_loss = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._targets,
                                                        logits=logits))
@@ -380,9 +382,8 @@ class MACH:
             self._hparams.learning_rate)
 
         # Synthetic network grads from synthetic loss.
-        self._syn_grads = optimizer.compute_gradients(
-            loss=self._syn_loss,
-            var_list=syn_vars)
+        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss,
+                                                      var_list=syn_vars)
 
         # Downstream grads from target
         self._dgrads = optimizer.compute_gradients(loss=self._embedding,
@@ -390,18 +391,17 @@ class MACH:
                                                    grad_loss=self._egrads)
 
         # Local + joiner network grads from embedding grads.
-        self._elgrads = optimizer.compute_gradients(
-            loss=self._embedding,
-            var_list=l_vars + jn_vars,
-            grad_loss=self._egrads)
+        self._elgrads = optimizer.compute_gradients(loss=self._embedding,
+                                                    var_list=l_vars + jn_vars,
+                                                    grad_loss=self._egrads)
 
         # Downstream grads from target.
         self._tdgrads = optimizer.compute_gradients(loss=target_loss,
                                                     var_list=self._dspikes)
 
         # Local + joiner grads from target.
-        self._tlgrads = optimizer.compute_gradients(
-            loss=target_loss, var_list=l_vars + jn_vars)
+        self._tlgrads = optimizer.compute_gradients(loss=target_loss,
+                                                    var_list=l_vars + jn_vars)
 
         # Train step for synthetic inputs.
         self._syn_step = optimizer.apply_gradients(self._syn_grads)
@@ -554,11 +554,10 @@ if __name__ == "__main__":
         default='logs',
         type=str,
         help='location of tensorboard logs. Default log_dir=logs')
-    parser.add_argument(
-        '--trace',
-        default=False,
-        type=bool,
-        help='Do trace. Default trace=false')
+    parser.add_argument('--trace',
+                        default=False,
+                        type=bool,
+                        help='Do trace. Default trace=false')
 
     hparams = parser.parse_args()
 
