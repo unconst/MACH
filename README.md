@@ -8,15 +8,15 @@
 -- Ernst Mach
 
 ## Introduction
-This repository contains research into a **fully-asynchronous** learning component loosely called **MACH**. Asynchrony is achieved by breaking the **forward** and **backward**, locking problems of neural networks trained with vanilla back-propogation. We use two techniques: **(1) synthetic inputs**, and **(2) delayed gradients** to break these locks respectively.  
+This repository contains research into a **fully-asynchronous** learning component called **MACH**. Asynchrony is achieved by breaking the **forward** and **backward**, locking problems for neural networks trained with vanilla back-propogation. We use two techniques: **(1) synthetic inputs**, and **(2) delayed gradients** to break these locks respectively.  
 
 ## Motivation
 
-A network of MACHs could hypothetically grow to arbitrary size while maintaining its constant training speed. If effective, these could be realistically scaled to multi-trillion parameter neural networks which consumed entire racks of fast inter-connected accelerators, entire data centres, or across the internet at large.
+A network composed of fully-asynchronous components could grow to arbitrary size without a decrease in training speed. Such networks could realistically scale across entire racks of accelerators, data centres or internet, and reach the scale of the human cortex in learnable parameters.
 
 ## Pull Requests
 
-In the interest of speed just directly commit to the repo. To make that feasible, try committing to independent directories and pulling often. Keep your work as modular as possible, I like to iterate fast by creating another sub project where tests can grow. For instance, in this repo, the sync_kgraph, and async_kgraph are separate independent implementations. Yes this creates code copying and rewrite, but allows fast development.
+In the interest of speed, just directly commit to the repo. To make that feasible, try to keep your work as modular as possible. I like to iterate fast by creating another sub project where tests can grow. For instance, in this repo, the sync_kgraph, and async_kgraph are separate independent implementations. Yes this creates code copying and rewrite, but allows fast development.
 
 Also, use [Yapf](https://github.com/google/yapf) for code formatting. You can run the following to format before a commit.
 ```
