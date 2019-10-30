@@ -12,7 +12,7 @@ This repository contains research into a **fully-asynchronous** learning compone
 
 ## Motivation
 
-A network composed of fully-asynchronous components could grow to arbitrary size without a decrease in training speed. Such networks could realistically scale depth-wise across entire racks of accelerators, data centres or across the internet, and reach the scale of the human cortex in learnable parameters.
+A network composed of fully-asynchronous components could grow to arbitrary size without a decrease in training speed. Such networks could realistically scale across entire racks of accelerators, data centres or internet, and reach the scale of the human cortex in learnable parameters.
 
 ## Pull Requests
 
