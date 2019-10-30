@@ -8,7 +8,7 @@
 -- Ernst Mach
 
 ## Introduction
-This repository contains the research into a fully asynchronous learning component loosely called MACH. These components are reliant on two techniques: (1) synthetic inputs, and (2) delayed gradients. 
+This repository contains research into a **fully-asynchronous** learning component loosely called **MACH**. Asynchrony is achieved by breaking the **forward locking** and **backward locking**, two synchrnous limitation of neural networks trained with vanilla back-propogation. We use two techniques: **(1) synthetic inputs**, and **(2) delayed gradients** to break these locks respectively.  
 
 ## Motivation
 
