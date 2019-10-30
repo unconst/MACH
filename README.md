@@ -8,11 +8,11 @@
 -- Ernst Mach
 
 ## Introduction
-This repository contains research into a **fully-asynchronous** learning component loosely called **MACH**. Asynchrony is achieved by breaking the **forward** and **backward**, locking problems of neural networks trained with vanilla back-propogation. We use two techniques: **(1) synthetic inputs**, and **(2) delayed gradients** to break these locks respectively.  
+This repository contains research into a **fully-asynchronous** learning component called **MACH**. Asynchrony is achieved by breaking the **forward** and **backward**, locking problems for neural networks trained with vanilla back-propogation. We use two techniques: **(1) synthetic inputs**, and **(2) delayed gradients** to break these locks respectively.  
 
 ## Motivation
 
-A network of MACHs could hypothetically grow to arbitrary size while maintaining its constant training speed. If effective, these could be realistically scaled to multi-trillion parameter neural networks which consumed entire racks of fast inter-connected accelerators, entire data centres, or across the internet at large.
+A network composed of fully-asynchronous components could grow to arbitrary size without a decrease in training speed. The resulting network could be split depth wise across data centres or across the internet at large, potentially reaching the scale of the human cortex.
 
 ## Pull Requests
 
