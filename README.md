@@ -12,11 +12,11 @@ This repository contains research into a **fully-asynchronous** learning compone
 
 ## Motivation
 
-A network composed of fully-asynchronous components could grow to arbitrary size without a decrease in training speed. The resulting network could be split depth wise across data centres or across the internet at large, potentially reaching the scale of the human cortex.
+A network composed of fully-asynchronous components could grow to arbitrary size without a decrease in training speed. Such networks could realistically scale depth-wise across entire racks of accelerators, data centres or across the internet, and reach the scale of the human cortex in learnable parameters.
 
 ## Pull Requests
 
-In the interest of speed just directly commit to the repo. To make that feasible, try committing to independent directories and pulling often. Keep your work as modular as possible, I like to iterate fast by creating another sub project where tests can grow. For instance, in this repo, the sync_kgraph, and async_kgraph are separate independent implementations. Yes this creates code copying and rewrite, but allows fast development.
+In the interest of speed, just directly commit to the repo. To make that feasible, try to keep your work as modular as possible. I like to iterate fast by creating another sub project where tests can grow. For instance, in this repo, the sync_kgraph, and async_kgraph are separate independent implementations. Yes this creates code copying and rewrite, but allows fast development.
 
 Also, use [Yapf](https://github.com/google/yapf) for code formatting. You can run the following to format before a commit.
 ```
