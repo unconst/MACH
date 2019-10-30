@@ -13,7 +13,7 @@ from tensorflow.examples.tutorials.mnist import input_data
 def load_data_and_constants(hparams):
     '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''
     # Load mnist data
-    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+    mnist = input_data.read_data_sets("~/tmp/MNIST_data/", one_hot=True)
     hparams.n_inputs = 784
     hparams.n_targets = 10
     return mnist, hparams
@@ -24,7 +24,7 @@ def next_nounce():
     return random.randint(0, 1000000000)
 
 
-class Component:
+class MACH:
 
     def __init__(self, name, hparams):
 
@@ -430,7 +430,7 @@ def build_and_components(hparams):
     # Build async components.
     components = []
     for i in range(hparams.n_components):
-        components.append(Component(i, hparams))
+        components.append(MACH(i, hparams))
     return components
 
 
