@@ -13,7 +13,7 @@ from tensorflow.examples.tutorials.mnist import input_data
 def load_data_and_constants(hparams):
     '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''
     # Load mnist data
-    mnist = input_data.read_data_sets("~/tmp/MNIST_data/", one_hot=True)
+    mnist = input_data.read_data_sets("../MNIST_data/", one_hot=True)
     hparams.n_inputs = 784
     hparams.n_targets = 10
     return mnist, hparams
@@ -437,15 +437,15 @@ def build_and_components(hparams):
 def connect_components(hparams, components):
     for i in range(hparams.n_components):
         k = 0
-        choice = random.sample(range(hparams.n_components), hparams.n_children)
-        logger.info('node {}, choice:{}', i, choice)
-        for el in choice:
-            components[i].set_child(k, components[el])
-            k += 1
+        for j in range(hparams.n_components):
+            if i != j:
+                components[i].set_child(k, components[j])
+                k += 1
 
 
 def main(hparams):
-    assert (hparams.n_components >= hparams.n_children + 1)
+    # k graph.
+    hparams.n_children = hparams.n_components - 1
 
     components = build_and_components(hparams)
     connect_components(hparams, components)
@@ -474,7 +474,7 @@ if __name__ == "__main__":
         help='The number of examples per batch. Default batch_size=128')
     parser.add_argument(
         '--learning_rate',
-        default=1e-5,
+        default=1e-4,
         type=float,
         help='Component learning rate. Default learning_rate=1e-4')
     parser.add_argument(
@@ -482,11 +482,6 @@ if __name__ == "__main__":
         default=128,
         type=int,
         help='Size of embedding between components. Default n_embedding=128')
-    parser.add_argument(
-        '--n_children',
-        default=2,
-        type=int,
-        help='The number of children in the graph. Default n_children=2')
     parser.add_argument(
         '--n_components',
         default=2,

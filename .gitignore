@@ -1,2 +1,2 @@
-logs/*
-MNIST_data
+**/logs/*
+**/MNIST_data
