@@ -29,7 +29,7 @@ $ yapf --style google -r -vv -i .
 Run a asynchronous kgraph of mach components on MNIST.
 ```$ python asynchronous_kgraph/main.py ```<br/>
 
-## Method
+## Method Description
 
 Each MACH is a self contained learning component which runs on its own thread, process, or host computer. It trains asynchronously, on its own local dataset, only interacting with its neighbors in the graph by sending tensors along the edges of the graph. These message are of two types, Spikes and Grads.
 
@@ -42,13 +42,13 @@ We avoid forward-locking by adopting synthetic inputs [1]. A synthetic input is 
 
 #### Grads
 
-A Grad back-propagates the training signal through the graph. It is a message created by a parent and sent to a child passing an input(x) and a gradient term $\partial f = \frac{\partial u}{\partial f}$, the error signal calculated by the parent. 
+A Grad back-propagates the training signal through the graph. It is a message created by a parent and sent to a child passing an input(x) and a gradient term ∂b = ∂a / ∂b,  the error signal calculated by the parent. 
 
 If the child node that receives the Grad has children, then the call is recursive, triggering $n$ Grad calls on each child. These have form (x, ∂a/∂c) where ∂a/∂c is derived by the chain rule: ∂a/∂c = ∂a/∂b ∂b/∂c
 
 Each Grad call is non-blocking and the node can move onto the next training step without waiting for the remaining network to apply the step. This creates delayed gradients [2].
 
-###### Delayed Gradients
+##### Delayed Gradients
 
 Delayed gradients alter the back-propagation algorithm. Error terms propagated by the parent node a, through b and then to c, sent at the t.th step, may be k steps behind, where k the number of steps computed at node b between producing its output and receiving the corresponding gradient. Thus our true chain rule takes form: a^(t+k} / c^(t+k) = a^t / b^t * b^(t+k) / c^(t+k)
 
