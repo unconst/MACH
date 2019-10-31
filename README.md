@@ -26,8 +26,11 @@ $ yapf --style google -r -vv -i .
 
 ## To Run
 
-Run a asynchronous kgraph of mach components on MNIST.
-```$ python asynchronous_kgraph/main.py ```<br/>
+Run a asynchronous kgraph of mach components on MNIST. <br/>
+```
+$ python asynchronous_kgraph/main.py 
+``` 
+<br/>
 
 ## Method Description
 
