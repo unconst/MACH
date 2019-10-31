@@ -28,6 +28,7 @@ $ yapf --style google -r -vv -i .
 
 Run a asynchronous kgraph of mach components on MNIST. <br/>
 ```
+$ pip install -r requirements.txt
 $ python asynchronous_kgraph/main.py 
 ``` 
 <br/>
