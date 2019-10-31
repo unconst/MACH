@@ -24,6 +24,14 @@ $ pip install yapf
 $ yapf --style google -r -vv -i .
 ```
 
+## References:
+
+1. Decoupled Neural Interfaces using Synthetic Gradients
+https://arxiv.org/pdf/1608.05343.pdf
+
+1. Decoupled Parallel Backpropagation with Convergence Guarantee
+https://arxiv.org/pdf/1804.10574.pdf
+
 ## Projects:
 
 ***name***: synchronous single mach  <br/>
