@@ -36,10 +36,10 @@ $ python asynchronous_kgraph/main.py
 
 ## Method Description
 
-Each MACH is a self contained learning component which runs on its own thread, process, or host computer. It trains asynchronously, on its own local dataset, only interacting with its neighbors in the graph by sending tensors along the edges of the graph. These message are of two types, Spikes and Grads.
+Each MACH is a self contained learning component which runs on its own thread, process, or host computer. It trains asynchronously, on its own local dataset, only interacting with its neighbors by sending tensors along the edges. These message are of two types, Spikes and Grads.
 
 #### Spikes
-A Spike a forward execution through the graph it passes a tensor of inputs along a directed edge to a child in the graph. The call is recursive and triggers further spike queries on each of its children before a response is returned. The problem is of course, that we cannot receive a response until all downstream nodes have executed and responded. Nodes are 'forward-locked'.
+A Spike is a forward execution through the graph it passes a tensor of inputs along a directed edge to a child. The call is recursive and triggers further spike queries on each of its children before a response is returned. The problem is of course, that we cannot receive a response until all downstream nodes have executed and responded. Nodes are 'forward-locked'.
 
 ##### Synthetic inputs
 
