@@ -8,7 +8,7 @@ import numpy as np
 import tensorflow as tf
 import threading
 from tensorflow.examples.tutorials.mnist import input_data
-
+import queue
 
 def load_data_and_constants(hparams):
     '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''
@@ -33,6 +33,9 @@ class MACH:
         self._mem = {}
         self._children = [None for _ in range(self._hparams.n_children)]
         self._ema_deltaLij = [0.0 for _ in range(self._hparams.n_children)]
+
+        self._l_grad_queue = queue.LifoQueue(maxsize=-1)
+
         self._graph = tf.Graph()
         self._file_writer = tf.compat.v1.summary.FileWriter(
             self._hparams.log_dir + '/node_' + str(self.name))
@@ -55,175 +58,145 @@ class MACH:
         logger.info('joining thread {}', self.name)
         self._thread.join()
 
-    def spike(self, nounce, spikes, depth):
-        if nounce in self._mem:
-            return np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
-        else:
-            self._mem[nounce] = {'spikes': spikes}
-
-        dspikes = self._get_dspikes(nounce, spikes, depth)
-        self._mem[nounce]['dspikes'] = dspikes
-
-        feeds = {self._spikes: spikes}
-        for i, dspike in enumerate(dspikes):
-            feeds[self._dspikes[i]] = dspike
-
-        if (depth < hparams.max_depth):
-            feeds[self._use_synthetic] = False
-            embedding = self._session.run([self._embedding, self._syn_step],
-                                          feeds)[0]
-        else:
-            feeds[self._use_synthetic] = True
-            embedding = self._session.run(self._embedding, feeds)
-
-        self._mem[nounce]['embedding'] = embedding
-        return embedding
-
-    def grade(self, nounce, spikes, grads, depth):
-        if nounce not in self._mem:
-            return
-
-        # Computes the gradients for the local node as well as the gradients
-        # for its children. Applies the gradients to the local node and sends the
-        # children gradients downstream.
-        feeds = {
-            self._spikes: self._mem[nounce]['spikes'],
-            self._egrads: grads,
-            self._use_synthetic: False
-        }
-        dspikes = self._mem[nounce]['dspikes']
-        for i, dspike in enumerate(dspikes):
-            feeds[self._dspikes[i]] = dspike
-
-        del self._mem[nounce]
-        # Compute gradients for the children and apply the local step.
-        dgrads = self._session.run(self._dgrads, feeds)
-
-        if depth < self._hparams.max_depth:
-            for i, child in enumerate(self._children):
-                child.grade(nounce, spikes, dgrads[i][0], depth + 1)
-
     def _run(self):
         step = 0
+        acc = 0
         while self._running:
             batch_x, batch_y = self._mnist.train.next_batch(hparams.batch_size)
-            self._train(batch_x, batch_y)
-            if self._hparams.slow_step > 0:
-                time.sleep(self._hparams.slow_step)
+            acc = acc * (0.95) + self._train(batch_x, batch_y) * 0.05
+            if step % hparams.local_step == 0:
+                self._local_step()
             if step % hparams.n_print == 0:
-                self._summaries(step)
+                logger.info('[{}] tr acc {}', self.name, acc)
             step += 1
-
-    def _summaries(self, step):
-        batch_x, batch_y = self._mnist.train.next_batch(hparams.batch_size)
-        train_acc = self._train(batch_x, batch_y)
-        val_acc = self._test(batch_x, batch_y)
-        summary = tf.Summary(value=[
-            tf.Summary.Value(tag="accuracy", simple_value=val_acc),
-        ])
-        self._file_writer.add_summary(summary, step)
-        self._file_writer.flush()
-        zip_scores = [
-            (child.name, "%.4f" % score)
-            for child, score in list(zip(self._children, self._ema_deltaLij))
-        ]
-        logger.info('[{}] tr: {} val: {} fim: {}', self.name,
-                    "%.4f" % train_acc, "%.4f" % val_acc, zip_scores)
 
     def _test(self, spikes, targets):
         # Run graph with synthetic inputs.
-        dspikes = self._get_dspikes(None, spikes, 0, do_spike=False)
         feeds = {
             self._spikes: spikes,
             self._targets: targets,
             self._use_synthetic: True,
         }
-        for i, dspike in enumerate(dspikes):
-            feeds[self._dspikes[i]] = dspike
+        for i, child in enumerate(self._children):
+            feeds[self._cspikes[i]] = np.zeros((self._hparams.batch_size, self._hparams.n_embedding))
         return self._session.run(self._accuracy, feeds)
 
+    def _local_step(self):
+
+        logger.info('.')
+        if self._l_grad_queue.qsize() == 0:
+            logger.info('local gras empty.')
+            return
+
+        grad_count = 0
+        grad_sum = []
+        for el in self._l_pgrads:
+            grad_sum.append(np.zeros(el[0].shape))
+
+        while not self._l_grad_queue.empty():
+            next_element = self._l_grad_queue.get()
+            name = next_element[0]
+            gradient = next_element[1]
+            for i, grad in enumerate(gradient):
+                grad_sum[i] += grad[0]
+            grad_count += 1
+
+        for i, _ in enumerate(grad_sum):
+            grad_sum[i] = grad_sum[i]/grad_count
+
+        feeds = {}
+        for i, _ in enumerate(self._l_pgrads):
+            feeds[self._l_pgrads[i][0]] = grad_sum[i]
+        fetches = {
+            'l_pstep': self._l_pstep,
+        }
+        self._session.run(fetches, feeds)
+
+
     def _train(self, spikes, targets):
-        nounce = next_nounce()
-
-        # Query children.
-        dspikes = self._get_dspikes(nounce, spikes, 0)
-
-        if self._hparams.trace:
-            for i, dspk in enumerate(dspikes):
-                logger.info("{} <- [{}{}]", self.name, self._children[i].name,
-                            dspk)
-
         feeds = {
             self._spikes: spikes,
             self._targets: targets,
             self._use_synthetic: False,
         }
-        for i, dspike in enumerate(dspikes):
-            feeds[self._dspikes[i]] = dspike
-
-        # Compute the target loss from the input and make a training step.
-        fetches = [
-            self._tdgrads, self._accuracy, self._deltaLij, self._tstep,
-            self._syn_loss, self._syn_step
-        ]
-        run_output = self._session.run(fetches, feeds)
-
-        # EMA over FIM scores.
-        deltaLij = run_output[2]
-        for i, score in enumerate(deltaLij):
-            prev_score = (self._ema_deltaLij[i] * (1 - self._hparams.score_ema))
-            next_score = deltaLij[i] * (self._hparams.score_ema)
-            self._ema_deltaLij[i] = prev_score + next_score
-
-        # Recursively pass the gradients through the graph.
-        train_grads = run_output[0]
         for i, child in enumerate(self._children):
-            grads = train_grads[i][0]
-            child.grade(nounce, spikes, grads, 0)
+            feeds[self._cspikes[i]] = child.spike(spikes)
+
+        # Build fetches.
+        fetches = {
+            'c_tgrads': self._c_tgrads,
+            'l_tgrads': self._l_tgrads,
+            'accuracy': self._accuracy,
+            't_step': self._t_step,
+            'jn_tstep': self._jn_tstep,
+            'syn_step': self._syn_step
+        }
+        run_output = self._session.run(fetches, feeds)
+        self._l_grad_queue.put((self.name, run_output['l_tgrads']))
+
+        for i, child in enumerate(self._children):
+            child.grade(self.name, spikes, run_output['c_tgrads'][i][0])
 
         # Return the batch accuracy.
-        return run_output[1]
+        return run_output['accuracy']
 
-    def _get_dspikes(self, nounce, spikes, depth, do_spike=True):
-        dspikes = []
-        for child in self._children:
-            if child and child.name != self.name and depth < self._hparams.max_depth and do_spike:
-                if self._hparams.trace:
-                    logger.info("{} -> o {}", self.name, child.name)
-                dspikes.append(child.spike(nounce, spikes, depth + 1))
-            else:
-                dspikes.append(
-                    np.zeros((np.shape(spikes)[0], self._hparams.n_embedding)))
-                if self._hparams.trace:
-                    logger.info("{} -> x {}", self.name, child.name)
+    def spike(self, spikes):
+        feeds = {
+            self._spikes: spikes,
+            self._use_synthetic: True,
+        }
+        for i, child in enumerate(self._children):
+            feeds[self._cspikes[i]] = np.zeros((self._hparams.batch_size, self._hparams.n_embedding))
+        fetches = {
+            'embedding': self._embedding,
+        }
+        run_output = self._session.run(fetches, feeds)
+        return run_output['embedding']
 
-        return dspikes
+    def grade(self, name, spikes, pgrads):
+        feeds = {
+            self._spikes: spikes,
+            self._pgrads: pgrads,
+            self._use_synthetic: True
+        }
+        for i, child in enumerate(self._children):
+            feeds[self._cspikes[i]] = np.zeros((self._hparams.batch_size, self._hparams.n_embedding))
+        fetches = {
+            'l_pgrads': self._l_pgrads
+        }
+        run_output = self._session.run(fetches, feeds)
+        self._l_grad_queue.put((name, run_output['l_pgrads']))
+
 
     def _model_fn(self):
 
-        # Placeholders.
-        # Spikes: inputs from the dataset of arbitrary batch_size.
+        # Placeholders:
+
+        # Spikes
         self._spikes = tf.compat.v1.placeholder(tf.float32,
                                                 [None, self._hparams.n_inputs],
                                                 's')
-        # Dspikes: inputs from previous component. Size is the same as the embeddings produced
-        # by this component.
-        self._dspikes = []
-        for _ in range(self._hparams.n_children):
-            self._dspikes.append(
+        # Child Spikes.
+        self._cspikes = []
+        for _ in self._children:
+            self._cspikes.append(
                 tf.compat.v1.placeholder(tf.float32,
                                          [None, self._hparams.n_embedding],
                                          'd'))
-        # Egrads: Gradient for this components embedding, passed by a parent.
-        self._egrads = tf.compat.v1.placeholder(
+        # Parent gradients.
+        self._pgrads = tf.compat.v1.placeholder(
             tf.float32, [None, self._hparams.n_embedding], 'g')
-        # Targets: Supervised signals used during training and testing.
+
+        # Targets
         self._targets = tf.compat.v1.placeholder(
             tf.float32, [None, self._hparams.n_targets], 't')
-        # use_synthetic: Flag, use synthetic downstream spikes.
+
+        # Synthetic network switch.
         self._use_synthetic = tf.compat.v1.placeholder(tf.bool,
                                                        shape=[],
                                                        name='use_synthetic')
+
+        # Variables:
 
         # Joiner weights and biases.
         jn_weights = {
@@ -258,6 +231,7 @@ class MACH:
         }
         jn_vars = list(jn_weights.values()) + list(jn_biases.values())
 
+
         # Synthetic weights and biases.
         syn_weights = {
             'syn_w1':
@@ -287,7 +261,8 @@ class MACH:
         }
         syn_vars = list(syn_weights.values()) + list(syn_biases.values())
 
-        # Model weights and biases
+
+        # Local weights and biases
         l_weights = {
             'w1':
                 tf.Variable(
@@ -305,12 +280,7 @@ class MACH:
                 tf.Variable(
                     tf.random.truncated_normal(
                         [self._hparams.n_hidden2, self._hparams.n_embedding],
-                        stddev=0.1)),
-            'w4':
-                tf.Variable(
-                    tf.random.truncated_normal(
-                        [self._hparams.n_embedding, self._hparams.n_targets],
-                        stddev=0.1)),
+                        stddev=0.1))
         }
         l_biases = {
             'b1':
@@ -319,27 +289,40 @@ class MACH:
                 tf.Variable(tf.constant(0.1, shape=[self._hparams.n_hidden2])),
             'b3':
                 tf.Variable(tf.constant(0.1,
-                                        shape=[self._hparams.n_embedding])),
-            'b4':
-                tf.Variable(tf.constant(0.1, shape=[self._hparams.n_targets])),
+                                        shape=[self._hparams.n_embedding]))
         }
         l_vars = list(l_weights.values()) + list(l_biases.values())
 
-        # Joiner network.
-        if self._hparams.use_joiner_network:
-            dspikes_concat = tf.concat(self._dspikes, axis=1)
-            jn_hidden1 = tf.nn.relu(
-                tf.add(tf.matmul(dspikes_concat, jn_weights['jn_w1']),
-                       jn_biases['jn_b1']))
-            jn_hidden2 = tf.nn.relu(
-                tf.add(tf.matmul(jn_hidden1, jn_weights['jn_w2']),
-                       jn_biases['jn_b2']))
-            jn_embedding = tf.add(tf.matmul(jn_hidden2, jn_weights['jn_w3']),
-                                  jn_biases['jn_b3'])
-        else:
-            jn_embedding = tf.add_n(self._dspikes)
 
-        # Synthetic network.
+        # Target weights and biases.
+        t_weights = {
+            'w1':
+                tf.Variable(
+                    tf.random.truncated_normal(
+                        [self._hparams.n_embedding, self._hparams.n_targets],
+                        stddev=0.1))
+        }
+        t_biases = {
+            'b1': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_targets]))
+        }
+        t_vars = list(t_weights.values()) + list(t_biases.values())
+
+
+        # Networks:
+
+        # Joiner network. [CSpikes] --> [Joiner]
+        dspikes_concat = tf.concat(self._cspikes, axis=1)
+        jn_hidden1 = tf.nn.relu(
+            tf.add(tf.matmul(dspikes_concat, jn_weights['jn_w1']),
+                   jn_biases['jn_b1']))
+        jn_hidden2 = tf.nn.relu(
+            tf.add(tf.matmul(jn_hidden1, jn_weights['jn_w2']),
+                   jn_biases['jn_b2']))
+        jn_embedding = tf.add(tf.matmul(jn_hidden2, jn_weights['jn_w3']),
+                              jn_biases['jn_b3'])
+
+
+        # Synthetic network. [Spikes] --> [Synthetic]
         syn_hidden1 = tf.nn.relu(
             tf.add(tf.matmul(self._spikes, syn_weights['syn_w1']),
                    syn_biases['syn_b1']))
@@ -351,13 +334,17 @@ class MACH:
         self._syn_loss = tf.reduce_mean(
             tf.nn.l2_loss(tf.stop_gradient(jn_embedding) - syn_embedding))
 
-        # Switch between Synthetic embedding and Joiner embedding.
+
+
+        # Switch: Synthetic vs Joiner.
         input_embedding = tf.cond(
             tf.equal(self._use_synthetic, tf.constant(True)),
             true_fn=lambda: tf.stop_gradient(syn_embedding),
             false_fn=lambda: jn_embedding)
 
-        # Local embedding network.
+
+
+        # Local network. [Joiner or Synthetic] --> [Local]
         input_layer = tf.concat([self._spikes, input_embedding], axis=1)
         hidden_layer1 = tf.nn.relu(
             tf.add(tf.matmul(input_layer, l_weights['w1']), l_biases['b1']))
@@ -366,64 +353,90 @@ class MACH:
         self._embedding = tf.nn.relu(
             tf.add(tf.matmul(hidden_layer2, l_weights['w3']), l_biases['b3']))
 
-        # Target: softmax cross entropy over local network embeddings.
-        logits = tf.add(tf.matmul(self._embedding, l_weights['w4']),
-                        l_biases['b4'])
+
+
+        # Target network. [Local] --> [Target]
+        logits = tf.add(tf.matmul(self._embedding, t_weights['w1']),
+                        t_biases['b1'])
         target_loss = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._targets,
                                                        logits=logits))
 
-        # Metrics: Calcuate accuracy.
-        correct = tf.equal(tf.argmax(logits, 1), tf.argmax(self._targets, 1))
-        self._accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
 
-        # Optimizer: The optimizer for this component.
+        # Gradients:
+
+        # Optimizer.
         optimizer = tf.compat.v1.train.AdamOptimizer(
             self._hparams.learning_rate)
 
-        # Synthetic network grads from synthetic loss.
-        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss,
-                                                      var_list=syn_vars)
+        l_optimizer = tf.compat.v1.train.AdamOptimizer(
+            self._hparams.l_learning_rate)
 
-        # Downstream grads from target
-        self._dgrads = optimizer.compute_gradients(loss=self._embedding,
-                                                   var_list=self._dspikes,
-                                                   grad_loss=self._egrads)
+        # Synthetic network grads. (from synthetic loss)
+        self._syn_grads = optimizer.compute_gradients(  loss=self._syn_loss,
+                                                        var_list=syn_vars)
 
-        # Local + joiner network grads from embedding grads.
-        self._elgrads = optimizer.compute_gradients(loss=self._embedding,
-                                                    var_list=l_vars + jn_vars,
-                                                    grad_loss=self._egrads)
 
-        # Downstream grads from target.
-        self._tdgrads = optimizer.compute_gradients(loss=target_loss,
-                                                    var_list=self._dspikes)
+        # Child grads. (target)
+        self._c_tgrads = optimizer.compute_gradients(   loss=target_loss,
+                                                        var_list=self._cspikes)
 
-        # Local + joiner grads from target.
-        self._tlgrads = optimizer.compute_gradients(loss=target_loss,
-                                                    var_list=l_vars + jn_vars)
+        # Child grads. (parent)
+        self._c_pgrads = optimizer.compute_gradients(   loss=self._embedding,
+                                                        var_list=self._cspikes,
+                                                        grad_loss=self._pgrads)
 
-        # Train step for synthetic inputs.
+        # Joiner network grads. (from target)
+        self._jn_tgrads = optimizer.compute_gradients(  loss=target_loss,
+                                                        var_list=jn_vars)
+
+        # Joiner network grads. (from parent)
+        self._jn_pgrads = optimizer.compute_gradients(  loss=self._embedding,
+                                                        var_list=jn_vars,
+                                                        grad_loss=self._pgrads)
+
+        # Local network grads. (from target)
+        self._l_tgrads = optimizer.compute_gradients(   loss=target_loss,
+                                                        var_list=l_vars)
+
+        # Local network grads. (from parent)
+        self._l_pgrads = optimizer.compute_gradients(   loss=self._embedding,
+                                                        var_list=l_vars,
+                                                        grad_loss=self._pgrads)
+
+        # Target network grads (from target)
+        self._t_grads = optimizer.compute_gradients(loss=target_loss,
+                                                    var_list=t_vars)
+
+
+        # Train steps:
+
+        # Synthetic step (from synthetic).
         self._syn_step = optimizer.apply_gradients(self._syn_grads)
 
-        # Train step from embedding Local + joiner network grads.
-        self._estep = optimizer.apply_gradients(self._elgrads)
+        # Joiner step (from target).
+        self._jn_tstep = optimizer.apply_gradients(self._jn_tgrads)
 
-        # Train step from target Local + joiner network grads.
-        self._tstep = optimizer.apply_gradients(self._tlgrads)
+        # Joiner step (from parent).
+        self._jn_pstep = optimizer.apply_gradients(self._jn_pgrads)
 
-        # FIM: Fishers information estimation.
-        # Calculate contribution scores.
-        # ∆Lij≈ ∑ gx·∆dj + 1/2N * ∆dj ∑ (gx∗gx)
-        self._deltaLij = []
-        for i, (gx, var) in enumerate(self._tdgrads):
-            delta_d = -self._dspikes[i]
-            g = tf.tensordot(delta_d, gx, axes=2)
-            gxgx = tf.multiply(gx, gx)
-            H = tf.tensordot(delta_d, gxgx, axes=2)
-            score = tf.reduce_sum(g + H)
-            #score = tf.Print(score, [i, score, delta_d])
-            self._deltaLij.append(score)
+        # Local step (from target).
+        self._l_tstep = optimizer.apply_gradients(self._l_tgrads)
+
+        # Local step (from parent).
+        self._l_pstep = l_optimizer.apply_gradients(self._l_pgrads)
+
+        # Target step (from target).
+        self._t_step = optimizer.apply_gradients(self._t_grads)
+
+
+
+        # Metrics:
+
+        # accuracy.
+        correct = tf.equal(tf.argmax(logits, 1), tf.argmax(self._targets, 1))
+        self._accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
+
 
 
 def build_and_components(hparams):
@@ -473,8 +486,18 @@ if __name__ == "__main__":
         type=int,
         help='The number of examples per batch. Default batch_size=128')
     parser.add_argument(
+        '--local_step',
+        default=50,
+        type=int,
+        help='When to apply the local step. Default local_step=50')
+    parser.add_argument(
         '--learning_rate',
         default=1e-4,
+        type=float,
+        help='Component learning rate. Default learning_rate=1e-4')
+    parser.add_argument(
+        '--l_learning_rate',
+        default=1e-5,
         type=float,
         help='Component learning rate. Default learning_rate=1e-4')
     parser.add_argument(
