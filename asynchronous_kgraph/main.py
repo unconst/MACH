@@ -632,6 +632,13 @@ if __name__ == "__main__":
         help=
         'The number of iterations between print statements. Default n_print=100'
     )
+    parser.add_argument(
+        '--slow_step',
+        default=-1,
+        type=int,
+        help=
+        'Run slow training steps for debugging. Number of seconds between steps. Default --slow_step=-1'
+    )
 
     hparams = parser.parse_args()
 
