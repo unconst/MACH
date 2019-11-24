@@ -126,7 +126,6 @@ class MACH:
         while not self._grad_queue.empty():
             local_grads.append(self._grad_queue.get())
 
-
         # Normalize gradients into a single batch.
         norm_grads = self._normalize_grads(local_grads)
 
@@ -574,19 +573,19 @@ if __name__ == "__main__":
         help='The number of examples per batch. Default batch_size=128')
     parser.add_argument(
         '--local_step',
-        default=50,
+        default=1,
         type=int,
         help='When to apply the local step. Default local_step=50')
     parser.add_argument(
         '--learning_rate',
         default=1e-4,
         type=float,
-        help='Component learning rate. Default learning_rate=1e-4')
+        help='Target learning rate, applied to the logit softmax. Default learning_rate=1e-4')
     parser.add_argument(
         '--l_learning_rate',
         default=1e-5,
         type=float,
-        help='Component learning rate. Default learning_rate=1e-4')
+        help='Local model learning rate, Applied to internal embedding. Default learning_rate=1e-4')
     parser.add_argument(
         '--n_embedding',
         default=128,
@@ -627,7 +626,7 @@ if __name__ == "__main__":
         help='Size of Joinermodel hidden layer 2. Default n_shidden2=512')
     parser.add_argument(
         '--n_print',
-        default=100,
+        default=10,
         type=int,
         help=
         'The number of iterations between print statements. Default n_print=100'
