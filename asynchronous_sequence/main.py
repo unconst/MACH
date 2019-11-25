@@ -8,7 +8,10 @@ from loguru import logger
 import numpy as np
 import tensorflow as tf
 import threading
+import time
 from tensorflow.examples.tutorials.mnist import input_data
+
+RUN_PREFIX = str(int(time.time()))
 
 def load_data_and_constants(hparams):
     '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''
@@ -21,21 +24,74 @@ def load_data_and_constants(hparams):
 def next_nounce():
     return random.randint(0, 1000000000)
 
+class TBLogger(object):
+    """Logging in tensorboard without tensorflow ops."""
+
+    def __init__(self, log_dir):
+        """Creates a summary writer logging to log_dir."""
+        self.writer = tf.summary.FileWriter(log_dir)
+
+    def log_scalar(self, tag, value, step):
+        """Log a scalar variable.
+        Parameter
+        ----------
+        tag : basestring
+            Name of the scalar
+        value
+        step : int
+            training iteration
+        """
+        summary = tf.Summary(value=[tf.Summary.Value(tag=tag,
+                                                     simple_value=value)])
+        self.writer.add_summary(summary, step)
+
+    def log_histogram(self, tag, values, step, bins=1000):
+        """Logs the histogram of a list/vector of values."""
+        # Convert to a numpy array
+        values = np.array(values)
+
+        # Create histogram using numpy
+        counts, bin_edges = np.histogram(values, bins=bins)
+
+        # Fill fields of histogram proto
+        hist = tf.HistogramProto()
+        hist.min = float(np.min(values))
+        hist.max = float(np.max(values))
+        hist.num = int(np.prod(values.shape))
+        hist.sum = float(np.sum(values))
+        hist.sum_squares = float(np.sum(values**2))
+
+        # Requires equal number as bins, where the first goes from -DBL_MAX to bin_edges[1]
+        # See https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/framework/summary.proto#L30
+        # Thus, we drop the start of the first bin
+        bin_edges = bin_edges[1:]
+
+        # Add bin edges and counts
+        for edge in bin_edges:
+            hist.bucket_limit.append(edge)
+        for c in counts:
+            hist.bucket.append(c)
+
+        # Create and write Summary
+        summary = tf.Summary(value=[tf.Summary.Value(tag=tag, histo=hist)])
+        self.writer.add_summary(summary, step)
+        self.writer.flush()
+
 class Mach:
 
-    def __init__(self, name, hparams, child=None):
-
+    def __init__(self, name, hparams):
         self.name = name
         self._mnist, self._hparams = load_data_and_constants(hparams)
-        self._child = child
-        self._mem = {}
+        self._child = None
         self._graph = tf.Graph()
-        self._file_writer = tf.compat.v1.summary.FileWriter(self._hparams.log_dir + '/node_' + str(self.name))
+        self._tblogger = TBLogger('asynchronous_sequence/logs/' + RUN_PREFIX + '/node-' + str(name) )
         self._session = tf.compat.v1.Session(graph=self._graph)
         with self._graph.as_default():
             self._model_fn()
             self._session.run(tf.compat.v1.global_variables_initializer())
 
+    def set_child(self, child):
+        self._child = child
 
     def start(self):
         self._running = True
@@ -56,11 +112,8 @@ class Mach:
             if step % hparams.n_print == 0:
                 train_acc = self._train(batch_x, batch_y)
                 val_acc = self._test(self._mnist.test.images, self._mnist.test.labels)
-                summary = tf.Summary(value=[
-                    tf.Summary.Value(tag="accuracy", simple_value=val_acc),
-                ])
-                self._file_writer.add_summary(summary, step)
-                self._file_writer.flush()
+                self._tblogger.log_scalar('val_accuracy', val_acc, step)
+                self._tblogger.log_scalar('tr_accuracy', train_acc, step)
                 logger.info('{}: train {}, validation {}', self.name, train_acc, val_acc)
             step+=1
 
@@ -71,6 +124,7 @@ class Mach:
             self._dspikes: dspikes,
             self._targets: targets,
             self._use_synthetic: True,
+            self._keep_rate: 1.0,
         }
         return self._session.run(self._accuracy, feeds)
 
@@ -92,6 +146,7 @@ class Mach:
             self._dspikes: dspikes,
             self._targets: targets,
             self._use_synthetic: False,
+            self._keep_rate: 0.96,
         }
         # Compute the target loss from the input and make a training step.
         fetches = [self._tdgrads, self._accuracy, self._tstep, self._syn_loss, self._syn_step]
@@ -105,49 +160,31 @@ class Mach:
         return run_output[1]
 
     def spike(self, nounce, spikes, depth):
-
-        # Check spike depth and children.
-        if self._child and (depth < hparams.max_depth):
-            # Query child with increased depth.
-            dspikes = self._child.spike(nounce, spikes, depth + 1)
-            self._mem[nounce] = dspikes
-            feeds = {
-                self._spikes: spikes,
-                self._dspikes: dspikes,
-                self._use_synthetic: False,
-            }
-            # Return Embedding and use dspikes to train the synthetic input.
-            embedding = self._session.run([self._embedding, self._syn_step], feeds)[0]
-            return embedding
-
-        else:
-            # Return using synthetic inputs as input to this component.
-            dspikes = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
-            self._mem[nounce] = dspikes
-            feeds = {
-                self._spikes: spikes,
-                self._dspikes: dspikes,
-                self._use_synthetic: True,
-            }
-            return self._session.run(self._embedding, feeds)
+        # Return using synthetic inputs as input to this component.
+        zeros = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
+        feeds = {
+            self._spikes: spikes,
+            self._dspikes: zeros,
+            self._use_synthetic: True,
+            self._keep_rate: 1.0,
+        }
+        return self._session.run(self._embedding, feeds)
 
 
     def grade(self, nounce, spikes, grads, depth):
         # Computes the gradients for the local node as well as the gradients
         # for its children. Applies the gradients to the local node and sends the
         # children gradients downstream.
+        zeros = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
         feeds = {
             self._spikes: spikes,
             self._egrads: grads,
-            self._dspikes: self._mem[nounce],
-            self._use_synthetic: False
+            self._dspikes: zeros,
+            self._use_synthetic: False,
+            self._keep_rate: 1.0
         }
-        del self._mem[nounce]
         # Compute gradients for the children and apply the local step.
-        dgrads = self._session.run([self._dgrads, self._estep], feeds)[0]
-        if self._child and (depth < hparams.max_depth):
-            # Recursively send the gradiets to the children.
-            self._child.grade(nounce, spikes, dgrads, depth + 1)
+        self._session.run([self._estep], feeds)
 
     def _model_fn(self):
 
@@ -163,6 +200,8 @@ class Mach:
         self._targets = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_targets], 't')
         # use_synthetic: Flag, use synthetic downstream spikes.
         self._use_synthetic = tf.compat.v1.placeholder(tf.bool, shape=[], name='use_synthetic')
+        # dropout prob
+        self._keep_rate = tf.placeholder_with_default(1.0, shape=())
 
         # Synthetic weights and biases.
         syn_weights = {
@@ -210,7 +249,8 @@ class Mach:
         input_layer = tf.concat([self._spikes, dspikes], axis=1)
         hidden_layer1 = tf.nn.relu(tf.add(tf.matmul(input_layer, weights['w1']), biases['b1']))
         hidden_layer2 = tf.nn.relu(tf.add(tf.matmul(hidden_layer1, weights['w2']), biases['b2']))
-        self._embedding = tf.nn.relu(tf.add(tf.matmul(hidden_layer2, weights['w3']), biases['b3']))
+        drop_hidden_layer2 = tf.nn.dropout(hidden_layer2, self._keep_rate)
+        self._embedding = tf.nn.relu(tf.add(tf.matmul(drop_hidden_layer2, weights['w3']), biases['b3']))
 
 
         # Target: Apply a softmax over the embeddings. This is the loss from the local network.
@@ -255,16 +295,16 @@ class Mach:
 def main(hparams):
 
     # Build async components.
-    components = []
+    components = [Mach(i, hparams) for i in range(hparams.n_components)]
+
+    # Connect components
     for i in range(hparams.n_components):
-        if i == 0:
-            components.append(Mach(i, hparams))
-        else:
-            components.append(Mach(i, hparams, components[i-1]))
+        if i != 0:
+            components[i].set_child(components[i-1])
 
     try:
-        for i in range(hparams.n_components):
-            components[i].start()
+        for c in components:
+            c.start()
         logger.info('Begin wait on main...')
         while True:
             time.sleep(5)
