@@ -8,7 +8,14 @@
 -- Ernst Mach
 
 ## Introduction
-This repository contains research into **fully-asynchronous** learning components called **MACHs**. Asynchrony is achieved by breaking the **forward** and **backward** locking problems inherited from back-propogation. We use two techniques: **[1] synthetic inputs**, and **[2] delayed gradients** to break these locks respectively.  
+This repository contains research into **fully-asynchronous** learning components called **MACHs**. Asynchrony is achieved by breaking the **forward** and **backward** locking problems inherited from back-propogation. We use two techniques: **[1] synthetic inputs**, and **[2] delayed gradients** to break these locks respectively. 
+
+## Run
+
+```
+$ pip install -r requirements.txt
+$ python mach/main.py
+```
 
 ## Motivation
 

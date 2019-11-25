@@ -1,6 +1,10 @@
 **/logs/*
 **/MNIST_data
 
+.DS_Store
+
 **/__pycache__/
 **/.ipynb_checkpoints/
 *.pyc
+
+**/data/*
