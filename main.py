@@ -32,7 +32,8 @@ def main(hparams):
         mnist_i, hparams = load_data_and_constants(hparams)
 
         # Tensorboard logger tool.
-        tblogger_i = TBLogger(hparams.log_dir + run_prefix + 'c' + str(i))
+        logdir_i = hparams.log_dir + "/" + run_prefix + "/" + 'c' + str(i)
+        tblogger_i = TBLogger(logdir_i)
 
         # Component.
         mach_i = Mach(i, mnist_i, hparams, tblogger_i)
