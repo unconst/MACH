@@ -1,5 +1,4 @@
 argparse
 loguru
 numpy
-tensorflow
-tensorflow_datasets
+tensorflow==1.15.0

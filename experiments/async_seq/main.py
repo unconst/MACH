@@ -86,7 +86,7 @@ class Mach:
         self._mnist, self._hparams = load_data_and_constants(hparams)
         self._child = None
         self._graph = tf.Graph()
-        self._tblogger = TBLogger('asynchronous_sequence/logs/' + RUN_PREFIX +
+        self._tblogger = TBLogger('experiments/async_seq/logs/' + RUN_PREFIX +
                                   '/node-' + str(name))
         self._session = tf.compat.v1.Session(graph=self._graph)
         with self._graph.as_default():
