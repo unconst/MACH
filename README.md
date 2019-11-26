@@ -1,8 +1,14 @@
 ## Biological Scale Neural Networks [![Build Status](https://travis-ci.com/unconst/MACH.svg?branch=master)](https://travis-ci.com/unconst/MACH)
 ### Asynchronous Sparsely Gated Mixtures of Experts
 
-<img src="assets/mach.png" width="1000" />
-
+```
+███████╗ ██████╗ ██████╗     █████╗ ██╗
+██╔════╝██╔═══██╗██╔══██╗   ██╔══██╗██║
+█████╗  ██║   ██║██████╔╝   ███████║██║
+██╔══╝  ██║   ██║██╔══██╗   ██╔══██║██║
+██║     ╚██████╔╝██║  ██║██╗██║  ██║██║
+╚═╝      ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚═╝
+```
 
 "In reality, the law always contains less than the fact itself, because it does not reproduce the fact as a whole but only in that aspect of it which is important for us, the rest being intentionally or from necessity omitted."
 
