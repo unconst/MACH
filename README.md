@@ -1,8 +1,14 @@
 # Biological Scale Neural Networks
 ### Unlocked Sparsely Gated Mixtures of Experts
 
-<img src="assets/mach.png" width="1000" />
-
+```
+███████╗ ██████╗ ██████╗     █████╗ ██╗
+██╔════╝██╔═══██╗██╔══██╗   ██╔══██╗██║
+█████╗  ██║   ██║██████╔╝   ███████║██║
+██╔══╝  ██║   ██║██╔══██╗   ██╔══██║██║
+██║     ╚██████╔╝██║  ██║██╗██║  ██║██║
+╚═╝      ╚═════╝ ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚═╝
+```
 
 "In reality, the law always contains less than the fact itself, because it does not reproduce the fact as a whole but only in that aspect of it which is important for us, the rest being intentionally or from necessity omitted."
 
@@ -44,4 +50,3 @@ https://arxiv.org/pdf/1608.05343.pdf
 
 1. Decoupled Parallel Backpropagation with Convergence Guarantee <br/>
 https://arxiv.org/pdf/1804.10574.pdf
-
