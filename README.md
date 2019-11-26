@@ -10,9 +10,9 @@
 
 ## Overview
 
-**[1] Sparsely gated mixtures of experts** with **[2] synthetic inputs** and **[3] delayed gradients**.
+[Sparsely gated mixtures of experts](https://arxiv.org/abs/1701.06538) with [synthetic inputs](https://arxiv.org/pdf/1608.05343.pdf) and [delayed gradients](https://arxiv.org/pdf/1804.10574.pdf)
 
-For a deeper description read the research: (https://www.overleaf.com/read/fvyqcmybsgfj)
+For a deeper description read the [research](https://www.overleaf.com/read/fvyqcmybsgfj)
 
 ---
 
