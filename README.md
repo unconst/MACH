@@ -1,4 +1,5 @@
 # Biological Scale Neural Networks
+### Unlocked Sparsely Gated Mixtures of Experts
 
 <img src="assets/mach.png" width="1000" />
 
