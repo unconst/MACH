@@ -10,6 +10,7 @@ import threading
 from tensorflow.examples.tutorials.mnist import input_data
 import queue
 
+
 def load_data_and_constants(hparams):
     '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''
     # Load mnist data
@@ -17,6 +18,7 @@ def load_data_and_constants(hparams):
     hparams.n_inputs = 784
     hparams.n_targets = 10
     return mnist, hparams
+
 
 def next_nounce():
     # Random number from large range.
@@ -87,7 +89,8 @@ class MACH:
             self._use_synthetic: True,
         }
         for i, child in enumerate(self._children):
-            feeds[self._cspikes[i]] = np.zeros((self._hparams.batch_size, self._hparams.n_embedding))
+            feeds[self._cspikes[i]] = np.zeros(
+                (self._hparams.batch_size, self._hparams.n_embedding))
         # Return testing accuracy.
         return self._session.run(self._accuracy, feeds)
 
@@ -110,7 +113,7 @@ class MACH:
 
         # Average each gradient.
         for i, _ in enumerate(grad_sum):
-            grad_sum[i] = grad_sum[i]/len(grads)
+            grad_sum[i] = grad_sum[i] / len(grads)
 
         # Return
         return grad_sum
@@ -140,7 +143,6 @@ class MACH:
         }
         self._session.run(fetches, feeds)
 
-
     def _train(self, spikes, targets):
         """ trains the target joiner and synthetic graph, produces gradients
         for local network and sends gradients to children.
@@ -155,7 +157,7 @@ class MACH:
         feeds = {
             self._spikes: spikes,
             self._targets: targets,
-            self._use_synthetic: False # Use Joiner with child spikes.
+            self._use_synthetic: False  # Use Joiner with child spikes.
         }
         # Fill child spikes by calling children.
         for i, child in enumerate(self._children):
@@ -163,12 +165,13 @@ class MACH:
 
         # Build fetches
         fetches = {
-            'c_tgrads': self._c_tgrads, # gradients for children.
-            'l_tgrads': self._l_tgrads, # gradients for local network.
-            'accuracy': self._accuracy, # supervised accuracy.
-            't_step': self._t_step, # train step for target network.
-            'jn_tstep': self._jn_tstep, # train step for joiner network.
-            'syn_step': self._syn_step # train step for synthetic network.
+            'c_tgrads': self._c_tgrads,  # gradients for children.
+            'l_tgrads': self._l_tgrads,  # gradients for local network.
+            'accuracy': self._accuracy,  # supervised accuracy.
+            't_step': self._t_step,  # train step for target network.
+            'jn_tstep': self._jn_tstep,  # train step for joiner network.
+            'syn_step':
+                self._syn_step  # train step for synthetic network.
         }
 
         # Run graph.
@@ -199,7 +202,8 @@ class MACH:
 
         # Fill child spikes with dummy inputs.
         for i, child in enumerate(self._children):
-            feeds[self._cspikes[i]] = np.zeros((self._hparams.batch_size, self._hparams.n_embedding))
+            feeds[self._cspikes[i]] = np.zeros(
+                (self._hparams.batch_size, self._hparams.n_embedding))
 
         # Fetch local network embedding
         fetches = {
@@ -229,19 +233,17 @@ class MACH:
 
         # Fill child spikes with dummy zeros.
         for i, child in enumerate(self._children):
-            feeds[self._cspikes[i]] = np.zeros((self._hparams.batch_size, self._hparams.n_embedding))
+            feeds[self._cspikes[i]] = np.zeros(
+                (self._hparams.batch_size, self._hparams.n_embedding))
 
         # Fetch gradients for the local network only.
-        fetches = {
-            'l_pgrads': self._l_pgrads
-        }
+        fetches = {'l_pgrads': self._l_pgrads}
 
         # Run fetch.
         run_output = self._session.run(fetches, feeds)
 
         # Append the gradients to the grad queue for later.
         self._grad_queue.put((name, run_output['l_pgrads']))
-
 
     def _model_fn(self):
         """ _model_fn: build the entire graph.
@@ -262,7 +264,6 @@ class MACH:
         self._targets = tf.compat.v1.placeholder(
             tf.float32, [None, self._hparams.n_targets], 't')
 
-
         # Parent gradients: float32 [batch_size, n_embedding]
         self._pgrads = tf.compat.v1.placeholder(
             tf.float32, [None, self._hparams.n_embedding], 'g')
@@ -279,7 +280,6 @@ class MACH:
                 tf.compat.v1.placeholder(tf.float32,
                                          [None, self._hparams.n_embedding],
                                          'd'))
-
 
         # Variables:
 
@@ -316,7 +316,6 @@ class MACH:
         }
         jn_vars = list(jn_weights.values()) + list(jn_biases.values())
 
-
         # Synthetic weights and biases.
         syn_weights = {
             'syn_w1':
@@ -346,7 +345,6 @@ class MACH:
         }
         syn_vars = list(syn_weights.values()) + list(syn_biases.values())
 
-
         # Local weights and biases
         l_weights = {
             'w1':
@@ -373,11 +371,9 @@ class MACH:
             'b2':
                 tf.Variable(tf.constant(0.1, shape=[self._hparams.n_hidden2])),
             'b3':
-                tf.Variable(tf.constant(0.1,
-                                        shape=[self._hparams.n_embedding]))
+                tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding]))
         }
         l_vars = list(l_weights.values()) + list(l_biases.values())
-
 
         # Target weights and biases.
         t_weights = {
@@ -392,7 +388,6 @@ class MACH:
         }
         t_vars = list(t_weights.values()) + list(t_biases.values())
 
-
         # Networks:
 
         # Joiner network. [-1, n_embedding * (k-1)] --> [-1, n_embedding]
@@ -406,7 +401,6 @@ class MACH:
         jn_embedding = tf.add(tf.matmul(jn_hidden2, jn_weights['jn_w3']),
                               jn_biases['jn_b3'])
 
-
         # Synthetic network. [-1, n_inputs] --> [-1, n_embedding]
         syn_hidden1 = tf.nn.relu(
             tf.add(tf.matmul(self._spikes, syn_weights['syn_w1']),
@@ -419,15 +413,11 @@ class MACH:
         self._syn_loss = tf.reduce_mean(
             tf.nn.l2_loss(tf.stop_gradient(jn_embedding) - syn_embedding))
 
-
-
         # Switch: Synthetic vs Joiner: [-1, n_embedding]
         input_embedding = tf.cond(
             tf.equal(self._use_synthetic, tf.constant(True)),
             true_fn=lambda: tf.stop_gradient(syn_embedding),
             false_fn=lambda: jn_embedding)
-
-
 
         # Local network. [-1, n_embedding] --> [-1, n_embedding]
         input_layer = tf.concat([self._spikes, input_embedding], axis=1)
@@ -438,15 +428,12 @@ class MACH:
         self._embedding = tf.nn.relu(
             tf.add(tf.matmul(hidden_layer2, l_weights['w3']), l_biases['b3']))
 
-
-
         # Target network. [-1, n_embedding] --> [-1, n_target]
         logits = tf.add(tf.matmul(self._embedding, t_weights['w1']),
                         t_biases['b1'])
         target_loss = tf.reduce_mean(
             tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._targets,
                                                        logits=logits))
-
 
         # Gradients:
 
@@ -459,41 +446,39 @@ class MACH:
             self._hparams.l_learning_rate)
 
         # Synthetic network grads. (from synthetic loss)
-        self._syn_grads = optimizer.compute_gradients(  loss=self._syn_loss,
-                                                        var_list=syn_vars)
-
+        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss,
+                                                      var_list=syn_vars)
 
         # Child grads. (from target)
-        self._c_tgrads = optimizer.compute_gradients(   loss=target_loss,
-                                                        var_list=self._cspikes)
+        self._c_tgrads = optimizer.compute_gradients(loss=target_loss,
+                                                     var_list=self._cspikes)
 
         # Child grads. (from parent)
-        self._c_pgrads = optimizer.compute_gradients(   loss=self._embedding,
-                                                        var_list=self._cspikes,
-                                                        grad_loss=self._pgrads)
+        self._c_pgrads = optimizer.compute_gradients(loss=self._embedding,
+                                                     var_list=self._cspikes,
+                                                     grad_loss=self._pgrads)
 
         # Joiner network grads. (from target)
-        self._jn_tgrads = optimizer.compute_gradients(  loss=target_loss,
-                                                        var_list=jn_vars)
+        self._jn_tgrads = optimizer.compute_gradients(loss=target_loss,
+                                                      var_list=jn_vars)
 
         # Joiner network grads. (from parent)
-        self._jn_pgrads = optimizer.compute_gradients(  loss=self._embedding,
-                                                        var_list=jn_vars,
-                                                        grad_loss=self._pgrads)
+        self._jn_pgrads = optimizer.compute_gradients(loss=self._embedding,
+                                                      var_list=jn_vars,
+                                                      grad_loss=self._pgrads)
 
         # Local network grads. (from target)
-        self._l_tgrads = optimizer.compute_gradients(   loss=target_loss,
-                                                        var_list=l_vars)
+        self._l_tgrads = optimizer.compute_gradients(loss=target_loss,
+                                                     var_list=l_vars)
 
         # Local network grads. (from parent)
-        self._l_pgrads = optimizer.compute_gradients(   loss=self._embedding,
-                                                        var_list=l_vars,
-                                                        grad_loss=self._pgrads)
+        self._l_pgrads = optimizer.compute_gradients(loss=self._embedding,
+                                                     var_list=l_vars,
+                                                     grad_loss=self._pgrads)
 
         # Target network grads (from target)
         self._t_grads = optimizer.compute_gradients(loss=target_loss,
                                                     var_list=t_vars)
-
 
         # Train steps:
 
@@ -515,13 +500,11 @@ class MACH:
         # Target step (from target).
         self._t_step = optimizer.apply_gradients(self._t_grads)
 
-
         # Metrics:
 
         # accuracy.
         correct = tf.equal(tf.argmax(logits, 1), tf.argmax(self._targets, 1))
         self._accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
-
 
 
 def build_and_components(hparams):
@@ -580,12 +563,16 @@ if __name__ == "__main__":
         '--learning_rate',
         default=1e-4,
         type=float,
-        help='Target learning rate, applied to the logit softmax. Default learning_rate=1e-4')
+        help=
+        'Target learning rate, applied to the logit softmax. Default learning_rate=1e-4'
+    )
     parser.add_argument(
         '--l_learning_rate',
         default=1e-5,
         type=float,
-        help='Local model learning rate, Applied to internal embedding. Default learning_rate=1e-4')
+        help=
+        'Local model learning rate, Applied to internal embedding. Default learning_rate=1e-4'
+    )
     parser.add_argument(
         '--n_embedding',
         default=128,
