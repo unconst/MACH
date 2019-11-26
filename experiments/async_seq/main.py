@@ -8,12 +8,22 @@ import numpy as np
 import tensorflow as tf
 import threading
 import time
-import tensorflow_datasets as tfds
+from tensorflow.examples.tutorials.mnist import input_data
 
 RUN_PREFIX = str(int(time.time()))
 
+def load_data_and_constants(hparams):
+    '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''
+    # Load mnist data
+    mnist = input_data.read_data_sets("../MNIST_data/", one_hot=True)
+    hparams.n_inputs = 784
+    hparams.n_targets = 10
+    return mnist, hparams
+
+
 def next_nounce():
     return random.randint(0, 1000000000)
+
 
 class TBLogger(object):
     """Logging in tensorboard without tensorflow ops."""
@@ -73,6 +83,7 @@ class Mach:
 
     def __init__(self, name, hparams):
         self.name = name
+        self._mnist, self._hparams = load_data_and_constants(hparams)
         self._child = None
         self._graph = tf.Graph()
         self._tblogger = TBLogger('asynchronous_sequence/logs/' + RUN_PREFIX +
@@ -98,25 +109,7 @@ class Mach:
 
     def _run(self):
         step = 0
-
-        mnist_builder = tfds.builder("mnist")
-        mnist_builder.download_and_prepare()
-        mnist_train = mnist_builder.as_dataset(split="train")
-        mnist_test = mnist_builder.as_dataset(split="test")
-        mnist_train = mnist_train.repeat().shuffle(1024).batch(hparams.batch_size))
-        mnist_train = mnist_train.prefetch(tf.data.experimental.AUTOTUNE)
-        mnist_test = mnist_test.repeat().shuffle(1024).batch(hparams.batch_size))
-        mnist_test = mnist_test.prefetch(tf.data.experimental.AUTOTUNE)
-
         while self._running:
-            # Build dataset pipelines.
-            mnist_train = mnist_train.repeat().shuffle(1024).batch(32)
-            mnist_train = mnist_train.prefetch(tf.data.experimental.AUTOTUNE)
-
-            mnist_test = self._mnist_train.repeat().shuffle(1024).batch(32)
-            mnist_test = mnist_train.prefetch(tf.data.experimental.AUTOTUNE)
-
-
             batch_x, batch_y = self._mnist.train.next_batch(hparams.batch_size)
             self._train(batch_x, batch_y)
             if step % hparams.n_print == 0:
