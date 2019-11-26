@@ -28,6 +28,7 @@ class Mach:
         self._hparams = hparams
         self._tblogger = tblogger
         self._child = None
+        self._running = False
         self._graph = tf.Graph()
         self._session = tf.compat.v1.Session(graph=self._graph)
         with self._graph.as_default():
@@ -43,7 +44,7 @@ class Mach:
     def start(self):
         """Start the training loop. Stops on call to stop.
         """
-        self._running = True
+        self.running = True
         self._thread = threading.Thread(target=self._run, daemon=True)
         logger.info('starting thread {}', self.name)
         self._thread.start()
@@ -51,7 +52,7 @@ class Mach:
     def stop(self):
         """Joins trainign thread stops training.
         """
-        self._running = False
+        self.running = False
         logger.info('joining thread {}', self.name)
         self._thread.join()
 
@@ -59,7 +60,7 @@ class Mach:
         """Loops train and test continually.
         """
         step = 0
-        while self._running:
+        while self.running:
             # Run train step.
             batch_x, batch_y = self._mnist.train.next_batch(self._hparams.batch_size)
             self._train(batch_x, batch_y)
@@ -71,6 +72,8 @@ class Mach:
                 self._tblogger.log_scalar('val_accuracy', val_acc, step)
                 self._tblogger.log_scalar('tr_accuracy', train_acc, step)
                 logger.info('{}: train {}, validation {}', self.name, train_acc, val_acc)
+            if step > self._hparams.n_train_steps:
+                self.running = False
             step+=1
 
     def _test(self, spikes, targets):

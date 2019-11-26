@@ -1,3 +1,10 @@
+"""Run the trainig pipelie.
+
+Example:
+        $ python main.py --batch_size 100
+
+"""
+
 import argparse
 from loguru import logger
 import threading
@@ -13,7 +20,11 @@ def run(hparams, components):
         for c in components:
             c.start()
         logger.info('Begin wait on main...')
-        while True:
+        running = True
+        while running:
+            for c in components:
+                if c.running == False:
+                    running = False
             time.sleep(5)
     except:
         logger.debug('tear down.')
@@ -113,6 +124,12 @@ if __name__ == "__main__":
         default='logs',
         type=str,
         help='location of tensorboard logs. Default log_dir=logs'
+    )
+    parser.add_argument(
+        '--n_train_steps',
+        default=10000,
+        type=int,
+        help='Training steps. Default n_train_steps=10000'
     )
 
     hparams = parser.parse_args()

@@ -9,4 +9,4 @@ install:
 
 # command to run tests
 script:
-  - python main.py
+  - python main.py --n_train_steps=10
