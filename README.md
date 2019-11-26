@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 # Biological Scale Neural Networks
 ### Unlocked Sparsely Gated Mixtures of Experts
+=======
+## Biological Scale Neural Networks [![Build Status](https://travis-ci.com/unconst/MACH.svg?branch=master)](https://travis-ci.com/unconst/MACH)
+### Asynchronous Sparsely Gated Mixtures of Experts
+>>>>>>> 737816eb9a80b39f051a8ec4a17bfceafa51b117
 
 ```
 ███████╗ ██████╗ ██████╗     █████╗ ██╗
