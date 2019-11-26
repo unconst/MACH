@@ -2,3 +2,4 @@ argparse
 loguru
 numpy
 tensorflow
+tensorflow_datasets
