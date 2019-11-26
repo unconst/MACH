@@ -18,7 +18,7 @@ For a deeper description read the research: (https://www.overleaf.com/read/fvyqc
 
 ```
 $ pip install -r requirements.txt
-$ python experiments/<experiment_name>.py
+$ python experiments/<experiment_name>/main.py
 ```
 ---
 
