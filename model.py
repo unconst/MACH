@@ -60,8 +60,11 @@ class Mach:
         """
         step = 0
         while self._running:
+            # Run train step.
             batch_x, batch_y = self._mnist.train.next_batch(self._hparams.batch_size)
             self._train(batch_x, batch_y)
+
+            # Run test step and print.
             if step % self._hparams.n_print == 0:
                 train_acc = self._train(batch_x, batch_y)
                 val_acc = self._test(self._mnist.test.images, self._mnist.test.labels)
@@ -84,6 +87,7 @@ class Mach:
             self._use_synthetic: True,
             self._keep_rate: 1.0,
         }
+        # Return the model accuracy.
         return self._session.run(self._accuracy, feeds)
 
     def _train(self, spikes, targets):
@@ -113,17 +117,23 @@ class Mach:
         }
 
         # Build fetches.
-        fetches = [self._tdgrads, self._accuracy, self._tstep, self._syn_loss, self._syn_step]
+        fetches = {
+            'target_child_graients': self._tdgrads,
+            'accuracy': self._accuracy,
+            'target_step': self._tstep,
+            'synthetic_loss': self._syn_loss,
+            'synthetic_step': self._syn_step
+        }
 
         # Run graph.
         run_output = self._session.run(fetches, feeds)
 
         # Pass the gradients to the child.
         if self._child:
-            self._child.grade(spikes, run_output[0])
+            self._child.grade(spikes, run_output['target_child_graients'])
 
         # Return the batch accuracy.
-        return run_output[1]
+        return run_output['accuracy']
 
     def spike(self, spikes):
         """ External query on this node.
@@ -138,11 +148,12 @@ class Mach:
         # Return using synthetic inputs as input to this component.
         zeros = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
         feeds = {
-            self._spikes: spikes,
-            self._cspikes: zeros,
-            self._use_synthetic: True,
-            self._keep_rate: 1.0,
+            self._spikes: spikes, # Mnist inputs.
+            self._cspikes: zeros, # Zeros from children (not used)
+            self._use_synthetic: True, # Use synthetic children.
+            self._keep_rate: 1.0, # No dropout.
         }
+        # Return the embedding.
         return self._session.run(self._embedding, feeds)
 
     def grade(self, spikes, grads):
@@ -158,27 +169,32 @@ class Mach:
 
         zeros = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
         feeds = {
-            self._spikes: spikes,
-            self._egrads: grads,
-            self._cspikes: zeros,
-            self._use_synthetic: False,
-            self._keep_rate: 1.0
+            self._spikes: spikes, # Spikes from query.
+            self._egrads: grads, # Embedding gradients from parent.
+            self._cspikes: zeros, # Zeros from children.
+            self._use_synthetic: False, # Do not use Synthetic.
+            self._keep_rate: 1.0 # No Dropout.
         }
-        # Compute gradients for the children and apply the local step.
+        # Run the embedding step.
         self._session.run([self._estep], feeds)
 
     def _model_fn(self):
+        """ Tensorflow model function
+
+        Builds the model: See (https://www.overleaf.com/read/fvyqcmybsgfj)
+
+        """
 
         # Placeholders.
         # Spikes: inputs from the dataset of arbitrary batch_size.
-        self._spikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_inputs], 's')
+        self._spikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_inputs])
         # Cspikes: inputs from previous component. Size is the same as the embeddings produced
         # by this component.
-        self._cspikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding], 'd')
+        self._cspikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding])
         # Egrads: Gradient for this components embedding, passed by a parent.
-        self._egrads = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding], 'g')
+        self._egrads = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding])
         # Targets: Supervised signals used during training and testing.
-        self._targets = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_targets], 't')
+        self._targets = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_targets])
         # use_synthetic: Flag, use synthetic downstream spikes.
         self._use_synthetic = tf.compat.v1.placeholder(tf.bool, shape=[], name='use_synthetic')
         # dropout prob
