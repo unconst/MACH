@@ -1,6 +1,16 @@
 """Fully Asynchronous Learning Component.
 
-This file contains the Mach class.
+This file contains the Mach class. This class runs on its own thread.
+It contains a unqiue copy to the dataset and trains against the global loss.
+During training it first queries the final activation layer ('embedding') from
+its child and uses this as additional intput to its own model. Further more,
+it trains a local distillation model or ('synthetic input') using the child's
+outputs. The target loss and the distilled model train concurrently.
+
+During testing/validation or when a post-sequential node queries us, we do not
+recursively query our own child, instead, we use the distilled model as input to
+our own network; this cuts the recursion and stops gradients from passing farther
+through the network.
 
 Example:
         $ mach = Mach ( name = 0,
