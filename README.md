@@ -41,7 +41,7 @@ $ python main.py
 
 ## Resources
 
-Paper: https://www.overleaf.com/read/fvyqcmybsgfj
+Paper: https://www.overleaf.com/read/fvyqcmybsgfj  </br>
 Code: https://www.github.com/unconst/Mach 
 
 ---
@@ -58,18 +58,18 @@ $ yapf --style google -r -vv -i .
 ## References:
 
 References
-1.	Decoupled Neural Interfaces using Synthetic Gradients </br>
+1.	Decoupled Neural Interfaces using Synthetic Gradients. </br>
 https://arxiv.org/pdf/1608.05343.pdf
 
-2.	Decoupled Parallel Backpropagation with Convergence Guarantee
+2.	Decoupled Parallel Backpropagation with Convergence Guarantee.  </br>
 https://arxiv.org/pdf/1804.10574.pdf
 
-3.	 Outrageously Large Neural Networks: Sparsely Gated Mixtures of Experts
+3.	 Outrageously Large Neural Networks: Sparsely Gated Mixtures of Experts.  </br>
 https://arxiv.org/abs/1701.06538
 
-4.	AMPNet: Asynchronous Model-Parallel Training for Dynamic Neural Networks https://www.microsoft.com/en-us/research/wp-content/uploads/2017/07/1705.09786.pdf
+4.	AMPNet: Asynchronous Model-Parallel Training for Dynamic Neural Networks.  </br> https://www.microsoft.com/en-us/research/wp-content/uploads/2017/07/1705.09786.pdf
 
-5.	An analysis of delayed gradients problem in asynchronous SGD. https://pdfs.semanticscholar.org/716b/a3d174006c19220c985acf132ffdfc6fc37b.pdf
+5.	An analysis of delayed gradients problem in asynchronous SGD.  </br> https://pdfs.semanticscholar.org/716b/a3d174006c19220c985acf132ffdfc6fc37b.pdf
 
-6. Improved Knowledge Distillation via Teacher Assistant: Bridging the Gap Between Student and Teacher
+6. Improved Knowledge Distillation via Teacher Assistant: Bridging the Gap Between Student and Teacher.  </br>
 https://arxiv.org/abs/1902.03393
