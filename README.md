@@ -58,7 +58,7 @@ $ yapf --style google -r -vv -i .
 ## References:
 
 References
-1.	Decoupled Neural Interfaces using Synthetic Gradients
+1.	Decoupled Neural Interfaces using Synthetic Gradients </br>
 https://arxiv.org/pdf/1608.05343.pdf
 
 2.	Decoupled Parallel Backpropagation with Convergence Guarantee
