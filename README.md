@@ -1,6 +1,6 @@
 
 ## Biological Scale Neural Networks [![Build Status](https://travis-ci.com/unconst/MACH.svg?branch=master)](https://travis-ci.com/unconst/MACH)
-### Asynchronous Sparsely Gated Mixtures of Experts
+### Sequential Distillation models.
 
 ```
 ███████╗ ██████╗ ██████╗     █████╗ ██╗
@@ -15,11 +15,18 @@
 
 -- Ernst Mach
 
-## Overview
+## TL;DR
+Increasing depth-wise scaling by training sequential distillation models.
 
-[Sparsely gated mixtures of experts](https://arxiv.org/abs/1701.06538) with [synthetic inputs](https://arxiv.org/pdf/1608.05343.pdf) and [delayed gradients](https://arxiv.org/pdf/1804.10574.pdf)
 
-For a deeper description read the [research](https://www.overleaf.com/read/fvyqcmybsgfj)
+## Motivation
+
+Depth is good, but deeper networks increasingly suffer from ’gradient locking’  if  the  network  is  required to update synchronously [1] [2] [4]. This issue can be avoided using depth-wise model parallelism, where sections of the network train independently. This, however, creates delayed  gradients [5] which affect convergence when component depth exceed a certain size. The proposal investigates a new class of neural network architecture which is composed of many sequentially connected sub-components each training asynchronously and distilling knowledge from their child. We hypothesize that this can be used to train arbitrarily deep neural networks. 
+
+The resulting model is, by its nature, a distilled versions of itself thus immediately usable in a production environment at reduced computational cost. Finally, the approach is well suited to an internet-wide environment making p2p training a potential avenue for future research.   
+ 
+
+For a deeper description read the [research](https://www.overleaf.com/read/fvyqcmybsgfj) or join the proj-mach on slack.
 
 ---
 
@@ -31,6 +38,12 @@ $ python main.py
 ```
 ---
 
+## Resources
+
+Paper: https://www.overleaf.com/read/fvyqcmybsgfj
+Code: https://www.github.com/unconst/Mach 
+
+---
 ## Pull Requests
 
 Use [Yapf](https://github.com/google/yapf) for code formatting
@@ -43,11 +56,19 @@ $ yapf --style google -r -vv -i .
 
 ## References:
 
-1. Outrageously Large Neural Networks: Sparsely Gated Mixtures of Experts <br/>
-https://arxiv.org/abs/1701.06538
-
-1. Decoupled Neural Interfaces using Synthetic Gradients <br/>
+References
+1.	Decoupled Neural Interfaces using Synthetic Gradients
 https://arxiv.org/pdf/1608.05343.pdf
 
-1. Decoupled Parallel Backpropagation with Convergence Guarantee <br/>
+2.	Decoupled Parallel Backpropagation with Convergence Guarantee
 https://arxiv.org/pdf/1804.10574.pdf
+
+3.	 Outrageously Large Neural Networks: Sparsely Gated Mixtures of Experts
+https://arxiv.org/abs/1701.06538
+
+4.	AMPNet: Asynchronous Model-Parallel Training for Dynamic Neural Networks https://www.microsoft.com/en-us/research/wp-content/uploads/2017/07/1705.09786.pdf
+
+5.	An analysis of delayed gradients problem in asynchronous SGD. https://pdfs.semanticscholar.org/716b/a3d174006c19220c985acf132ffdfc6fc37b.pdf
+
+6. Improved Knowledge Distillation via Teacher Assistant: Bridging the Gap Between Student and Teacher
+https://arxiv.org/abs/1902.03393
