@@ -21,11 +21,12 @@ Increasing depth-wise scaling by training sequential distillation models.
 
 ## Motivation
 
-Depth is good, but deeper networks increasingly suffer from ’gradient locking’  if  the  network  is  required to update synchronously [1] [2] [4]. This issue can be avoided using depth-wise model parallelism, where sections of the network train independently. This, however, creates delayed  gradients [5] which affect convergence when component depth exceed a certain size. The proposal investigates a new class of neural network architecture which is composed of many sequentially connected sub-components each training asynchronously and distilling knowledge from their child. We hypothesize that this can be used to train arbitrarily deep neural networks. 
+Depth is good, but deeper networks increasingly suffer from ’gradient locking’  if  the  network  is  required to update synchronously [1] [2] [4]. This issue can be avoided using depth-wise model parallelism, where sections of the network train independently. This, however, creates delayed  gradients [5] which affect convergence when component depth exceed a certain size. 
+
+The research investigates a new class of neural network architecture which is composed of many sequentially connected sub-components each training asynchronously and distilling knowledge from their child. We hypothesize that this can be used to train arbitrarily deep neural networks.
 
 The resulting model is, by its nature, a distilled versions of itself thus immediately usable in a production environment at reduced computational cost. Finally, the approach is well suited to an internet-wide environment making p2p training a potential avenue for future research.   
  
-
 For a deeper description read the [research](https://www.overleaf.com/read/fvyqcmybsgfj) or join the proj-mach on slack.
 
 ---
