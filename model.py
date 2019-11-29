@@ -89,23 +89,28 @@ class Mach:
                 val_out = self._run_graph(val_x, val_y, keep_prop=1.0, use_synthetic=False, do_train=False)
 
                 # Accuracy metrics.
-                self._tblogger.log_scalar('validation_accuracy', syn_val_out['accuracy'], step)
-                self._tblogger.log_scalar('validation_accuracy_with_synthetic_inputs', val_out['accuracy'], step)
-                self._tblogger.log_scalar('training_accuracy_with_synthetic_inputs', syn_tr_out['accuracy'], step)
-                self._tblogger.log_scalar('training_accuracy', tr_out['accuracy'], step)
+                self._tblogger.log_scalar('validation accuracy using child', syn_val_out['accuracy'], step)
+                self._tblogger.log_scalar('validation accuracy using synthetic', val_out['accuracy'], step)
+                self._tblogger.log_scalar('training accuracy using synthetic', syn_tr_out['accuracy'], step)
+                self._tblogger.log_scalar('training_accuracy using child', tr_out['accuracy'], step)
 
                 # Target loss.
-                self._tblogger.log_scalar('training_target_loss_with_synthetic_inputs', syn_tr_out['target_loss'], step)
-                self._tblogger.log_scalar('training_target_loss', tr_out['target_loss'], step)
+                self._tblogger.log_scalar('training target loss using synthetic', syn_tr_out['target_loss'], step)
+                self._tblogger.log_scalar('training target loss using child', tr_out['target_loss'], step)
 
                 # Synthetic loss.
-                self._tblogger.log_scalar('training_synthetic_loss', tr_out['synthetic_loss'], step)
-                self._tblogger.log_scalar('validation_synthetic_loss', val_out['synthetic_loss'], step)
+                self._tblogger.log_scalar('training synthetic loss', tr_out['synthetic_loss'], step)
+                self._tblogger.log_scalar('validation synthetic loss', val_out['synthetic_loss'], step)
+
+                # Inputs score.
+                self._tblogger.log_scalar('inputs pruning score', tr_out['inputs_pruning_score'], step)
+                self._tblogger.log_scalar('inputs absolute sum of gradients', tr_out['inputs_absolute_gradient'], step)
+                self._tblogger.log_scalar('inputs weight magnitude', tr_out['inputs_weight_magnitude'], step)
 
                 # Downstream score.
-                self._tblogger.log_scalar('downstream_pruning_score', tr_out['downstream_score'], step)
-                self._tblogger.log_scalar('downstream_absolute_gradient', tr_out['downstream_absolute_gradient'], step)
-                self._tblogger.log_scalar('downstream_weight_magnitude', tr_out['downstream_weight_magnitude'], step)
+                self._tblogger.log_scalar('downstream pruning score', tr_out['downstream_pruning_score'], step)
+                self._tblogger.log_scalar('downstream absolute sum of gradients', tr_out['downstream_absolute_gradient'], step)
+                self._tblogger.log_scalar('downstream weight magnitude', tr_out['downstream_weight_magnitude'], step)
 
                 logger.info('{}: [val: {} - {}  tr: {} - {}]', self.name, val_out['accuracy'], syn_val_out['accuracy'], tr_out['accuracy'], syn_tr_out['accuracy'])
             if step > self._hparams.n_train_steps:
@@ -141,7 +146,12 @@ class Mach:
         fetches = {
             'accuracy': self._accuracy, # Classification accuracy.
             'target_loss': self._target_loss, # Target accuracy.
-            'downstream_score': self._downstream_score, # Salience of downstream.
+
+            'inputs_pruning_score': self._inputs_pruning_score, # Salience of inputs.
+            'inputs_weight_magnitude': self._inputs_weight_magnitude,
+            'inputs_absolute_gradient': self._inputs_absolute_gradient,
+
+            'downstream_pruning_score': self._downstream_pruning_score, # Salience of downstream.
             'downstream_weight_magnitude': self._downstream_weight_magnitude,
             'downstream_absolute_gradient': self._downstream_absolute_gradient,
         }
@@ -321,13 +331,19 @@ class Mach:
         # Target trainstep: Train step which applies the gradients calculated w.r.t the target loss.
         self._tstep = optimizer.apply_gradients(self._tlgrads)
 
+        # Compute information scores for raw input.
+        self._inputs_grads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._spikes)
+        self._inputs_absolute_gradient = tf.reduce_sum(tf.reduce_sum(tf.abs(self._inputs_grads[0][0])))
+        self._inputs_pruning_score = self._pruning_score(self._spikes, self._inputs_grads[0][0])
+        self._inputs_weight_magnitude = tf.reduce_sum(tf.reduce_sum(tf.slice(weights['w1'], [0, 0], [784, -1])))
+
         # Compute information scores for downstream component.
         self._downstream_grads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._downstream)
         self._downstream_absolute_gradient = tf.reduce_sum(tf.reduce_sum(tf.abs(self._downstream_grads[0][0])))
-        self._downstream_score = self._fimscore(self._downstream, self._downstream_grads[0][0])
+        self._downstream_pruning_score = self._pruning_score(self._downstream, self._downstream_grads[0][0])
         self._downstream_weight_magnitude = tf.reduce_sum(tf.reduce_sum(tf.slice(weights['w1'], [784, 0], [-1, -1])))
 
-    def _fimscore(self, value, gradient):
+    def _pruning_score(self, value, gradient):
         g = tf.tensordot(-value, gradient, axes=2)
         gxgx = tf.multiply(gradient, gradient)
         H = tf.tensordot(-value, gxgx, axes=2)
