@@ -102,6 +102,11 @@ class Mach:
                 self._tblogger.log_scalar('training_synthetic_loss', tr_out['synthetic_loss'], step)
                 self._tblogger.log_scalar('validation_synthetic_loss', val_out['synthetic_loss'], step)
 
+                # Downstream score.
+                self._tblogger.log_scalar('downstream_pruning_score', tr_out['downstream_score'], step)
+                self._tblogger.log_scalar('downstream_absolute_gradient', tr_out['downstream_absolute_gradient'], step)
+                self._tblogger.log_scalar('downstream_weight_magnitude', tr_out['downstream_weight_magnitude'], step)
+
                 logger.info('{}: [val: {} - {}  tr: {} - {}]', self.name, val_out['accuracy'], syn_val_out['accuracy'], tr_out['accuracy'], syn_tr_out['accuracy'])
             if step > self._hparams.n_train_steps:
                 self.running = False
@@ -136,6 +141,9 @@ class Mach:
         fetches = {
             'accuracy': self._accuracy, # Classification accuracy.
             'target_loss': self._target_loss, # Target accuracy.
+            'downstream_score': self._downstream_score, # Salience of downstream.
+            'downstream_weight_magnitude': self._downstream_weight_magnitude,
+            'downstream_absolute_gradient': self._downstream_absolute_gradient,
         }
 
         # We train the synthetic model when we query our child.
@@ -262,13 +270,13 @@ class Mach:
         tf.compat.v1.summary.scalar("syn_loss", self._syn_loss)
 
         # Switch between synthetic embedding or true_embedding
-        cspikes = tf.cond(tf.equal(self._use_synthetic, tf.constant(True)),
+        self._downstream = tf.cond(tf.equal(self._use_synthetic, tf.constant(True)),
                               true_fn=lambda: tf.stop_gradient(syn_cspikes),
                               false_fn=lambda: self._cspikes)
 
         # Embedding: Apply the hidden layer to the spikes and embeddings from the previous component.
         # The embedding is the output for this component passed to its parents.
-        input_layer = tf.concat([self._spikes, cspikes], axis=1)
+        input_layer = tf.concat([self._spikes, self._downstream], axis=1)
         hidden_layer1 = tf.nn.relu(tf.add(tf.matmul(input_layer, weights['w1']), biases['b1']))
         hidden_layer2 = tf.nn.relu(tf.add(tf.matmul(hidden_layer1, weights['w2']), biases['b2']))
         drop_hidden_layer2 = tf.nn.dropout(hidden_layer2, self._keep_rate)
@@ -312,3 +320,16 @@ class Mach:
 
         # Target trainstep: Train step which applies the gradients calculated w.r.t the target loss.
         self._tstep = optimizer.apply_gradients(self._tlgrads)
+
+        # Compute information scores for downstream component.
+        self._downstream_grads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._downstream)
+        self._downstream_absolute_gradient = tf.reduce_sum(tf.reduce_sum(tf.abs(self._downstream_grads[0][0])))
+        self._downstream_score = self._fimscore(self._downstream, self._downstream_grads[0][0])
+        self._downstream_weight_magnitude = tf.reduce_sum(tf.reduce_sum(tf.slice(weights['w1'], [784, 0], [-1, -1])))
+
+    def _fimscore(self, value, gradient):
+        g = tf.tensordot(-value, gradient, axes=2)
+        gxgx = tf.multiply(gradient, gradient)
+        H = tf.tensordot(-value, gxgx, axes=2)
+        score = tf.reduce_sum(g + H)
+        return score
