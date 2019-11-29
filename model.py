@@ -3,9 +3,9 @@
 This file contains the Mach class. This class runs on its own thread.
 It contains a unqiue copy to the dataset and trains against the global loss.
 During training it first queries the final activation layer ('embedding') from
-its child and uses this as additional intput to its own model. Further more,
-it trains a local distillation model or ('synthetic input') using the child's
-outputs. The target loss and the distilled model train concurrently.
+its child and uses this as additional input to its own model. The class concurrently
+trains a distillation model or ('synthetic input') using the child's outputs.
+The target loss and the distilled model train concurrently.
 
 During testing/validation or when a post-sequential node queries us, we do not
 recursively query our own child, instead, we use the distilled model as input to
@@ -23,6 +23,7 @@ from loguru import logger
 import numpy as np
 import tensorflow as tf
 import threading
+
 
 class Mach:
     def __init__(self, name, mnist, hparams, tblogger):
@@ -60,7 +61,7 @@ class Mach:
         self._thread.start()
 
     def stop(self):
-        """Joins trainign thread stops training.
+        """Joins training thread and stops.
         """
         self.running = False
         logger.info('joining thread {}', self.name)
@@ -73,51 +74,53 @@ class Mach:
         while self.running:
             # Run train step.
             batch_x, batch_y = self._mnist.train.next_batch(self._hparams.batch_size)
-            self._train(batch_x, batch_y)
+            self._run_graph(batch_x, batch_y, keep_prop=0.95, use_synthetic=False, do_train=True)
 
             # Run test step and print.
             if step % self._hparams.n_print == 0:
-                train_acc = self._train(batch_x, batch_y)
-                val_acc = self._test(self._mnist.test.images, self._mnist.test.labels)
-                self._tblogger.log_scalar('val_accuracy', val_acc, step)
-                self._tblogger.log_scalar('tr_accuracy', train_acc, step)
-                logger.info('{}: train {}, validation {}', self.name, train_acc, val_acc)
+
+                # Train / Validation with and without synthetic models.
+                tr_x, tr_y = self._mnist.train.next_batch(self._hparams.batch_size)
+                val_x = self._mnist.test.images
+                val_y = self._mnist.test.labels
+                syn_tr_out = self._run_graph(tr_x, tr_y, keep_prop=1.0, use_synthetic=True, do_train=False)
+                tr_out = self._run_graph(tr_x, tr_y, keep_prop=1.0, use_synthetic=False, do_train=False)
+                syn_val_out = self._run_graph(val_x, val_y, keep_prop=1.0, use_synthetic=True, do_train=False)
+                val_out = self._run_graph(val_x, val_y, keep_prop=1.0, use_synthetic=False, do_train=False)
+
+                # Accuracy metrics.
+                self._tblogger.log_scalar('validation_accuracy', syn_val_out['accuracy'], step)
+                self._tblogger.log_scalar('validation_accuracy_with_synthetic_inputs', val_out['accuracy'], step)
+                self._tblogger.log_scalar('training_accuracy_with_synthetic_inputs', syn_tr_out['accuracy'], step)
+                self._tblogger.log_scalar('training_accuracy', tr_out['accuracy'], step)
+
+                # Target loss.
+                self._tblogger.log_scalar('training_target_loss_with_synthetic_inputs', syn_tr_out['target_loss'], step)
+                self._tblogger.log_scalar('training_target_loss', tr_out['target_loss'], step)
+
+                # Synthetic loss.
+                self._tblogger.log_scalar('training_synthetic_loss', tr_out['synthetic_loss'], step)
+                self._tblogger.log_scalar('validation_synthetic_loss', val_out['synthetic_loss'], step)
+
+                logger.info('{}: [val: {} - {}  tr: {} - {}]', self.name, val_out['accuracy'], syn_val_out['accuracy'], tr_out['accuracy'], syn_tr_out['accuracy'])
             if step > self._hparams.n_train_steps:
                 self.running = False
             step+=1
 
-    def _test(self, spikes, targets):
-        """Runs the test graph using synthetic inputs.
-        Args:
-            spikes (numpy): mnist inputs [batch_size, 784]
-            targets (numpy): mnist targets [batch_size, 10]
-        """
-        cspikes = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
-        feeds = {
-            self._spikes: spikes,
-            self._cspikes: cspikes,
-            self._targets: targets,
-            self._use_synthetic: True,
-            self._keep_rate: 1.0,
-        }
-        # Return the model accuracy.
-        return self._session.run(self._accuracy, feeds)
-
-    def _train(self, spikes, targets):
-        """Runs the traininng graph.
-
-        First queries child to retrieve inputs to the local graph. Then computes
-        the local target loss. Gradients apply to the local model and are passed
-        downstream to the children.
+    def _run_graph(self, spikes, targets, keep_prop, use_synthetic, do_train):
+        """Runs the graph and returns fetch outputs.
 
         Args:
             spikes (numpy): mnist inputs [batch_size, 784]
             targets (numpy): mnist targets [batch_size, 10]
+            keep_prop (float): dropout rate.
+            use_synthetic (bool): do we use synthetic inputs or query child.
+            do_train (bool): do we trigger training step.
         """
 
         # Query child if exists.
         cspikes =  np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
-        if self._child:
+        if self._child and not use_synthetic:
             cspikes = self._child.spike(spikes)
 
         # Build feeds.
@@ -125,28 +128,36 @@ class Mach:
             self._spikes: spikes, # Mnist 784 input.
             self._cspikes: cspikes, # Child inputs.
             self._targets: targets, # Mnist 1-hot Targets.
-            self._use_synthetic: False, # Do not use synthetic inputs.
-            self._keep_rate: 0.96, # Dropout.
+            self._use_synthetic: use_synthetic, # Do not use synthetic inputs.
+            self._keep_rate: keep_prop, # Dropout.
         }
 
         # Build fetches.
         fetches = {
-            'target_child_graients': self._tdgrads,
-            'accuracy': self._accuracy,
-            'target_step': self._tstep,
-            'synthetic_loss': self._syn_loss,
-            'synthetic_step': self._syn_step
+            'accuracy': self._accuracy, # Classification accuracy.
+            'target_loss': self._target_loss, # Target accuracy.
         }
+
+        # We train the synthetic model when we query our child.
+        if not use_synthetic:
+            fetches['synthetic_loss'] = self._syn_loss # Distillation loss.
+
+        if not use_synthetic and do_train:
+            fetches['synthetic_step'] = self._syn_step # Synthetic step.
+            fetches['child_gradients'] = self._tdgrads
+
+        if do_train:
+            fetches['target_step'] = self._tstep
 
         # Run graph.
         run_output = self._session.run(fetches, feeds)
 
         # Pass the gradients to the child.
-        if self._child:
-            self._child.grade(spikes, run_output['target_child_graients'])
+        if self._child and do_train and not use_synthetic:
+            self._child.grade(spikes, run_output['child_gradients'])
 
         # Return the batch accuracy.
-        return run_output['accuracy']
+        return run_output
 
     def spike(self, spikes):
         """ External query on this node.
@@ -224,6 +235,7 @@ class Mach:
             'syn_b2': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_shidden2])),
             'syn_b3': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding])),
         }
+        synthetic_network_variables = list(syn_weights.values()) + list(syn_biases.values())
 
         # Weights and biases + Synthetic weights and biases.
         # Each component has one hidden layer. Projection is from the input dimension, concatenated
@@ -240,12 +252,12 @@ class Mach:
             'b3': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding])),
             'b4': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_targets])),
         }
+        local_network_variables = list(weights.values()) + list(biases.values())
 
         # Syn_embedding: The synthetic input, produced by distilling the child component with a local model.
         syn_hidden1 = tf.nn.relu(tf.add(tf.matmul(self._spikes, syn_weights['syn_w1']), syn_biases['syn_b1']))
         syn_hidden2 = tf.nn.relu(tf.add(tf.matmul(syn_hidden1, syn_weights['syn_w2']), syn_biases['syn_b2']))
         syn_cspikes = tf.add(tf.matmul(syn_hidden2, syn_weights['syn_w3']), syn_biases['syn_b3'])
-        #syn_cspikes = tf.Print(syn_cspikes, [self._cspikes, syn_cspikes], summarize=100000)
         self._syn_loss = tf.reduce_mean(tf.nn.l2_loss(tf.stop_gradient(self._cspikes) - syn_cspikes))
         tf.compat.v1.summary.scalar("syn_loss", self._syn_loss)
 
@@ -266,7 +278,7 @@ class Mach:
         # Target: Apply a softmax over the embeddings. This is the loss from the local network.
         # The loss on the target and the loss from the parent averaged.
         logits = tf.add(tf.matmul(self._embedding, weights['w4']), biases['b4'])
-        target_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._targets, logits=logits))
+        self._target_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._targets, logits=logits))
 
         # Metrics: We calcuate accuracy here because we are working with MNIST.
         correct = tf.equal(tf.argmax(logits, 1), tf.argmax(self._targets, 1))
@@ -275,21 +287,21 @@ class Mach:
         # Optimizer: The optimizer for this component, could be different accross components.
         optimizer = tf.compat.v1.train.AdamOptimizer(1e-4)
 
-        # syn_grads: Here, we compute the gradient terms for the synthetic inputs.
-        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss, var_list=list(syn_weights.values()) + list(syn_biases.values()))
+        # syn_grads: Gradient terms for the synthetic inputs.
+        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss, var_list=synthetic_network_variables)
 
         # Embedding grads: Here, we compute the gradient terms for the embedding with respect
         # to the gradients passed from the parent (a.k.a egrads). Dgrads is the gradient for
         # the downstream component (child) and elgrads are the gradient terms for the the local
         # FFNN.
         self._cgrads = optimizer.compute_gradients(loss=self._embedding, var_list=[self._cspikes], grad_loss=self._egrads)[0][0]
-        self._elgrads = optimizer.compute_gradients(loss=self._embedding, var_list=tf.compat.v1.trainable_variables(), grad_loss=self._egrads)
+        self._elgrads = optimizer.compute_gradients(loss=self._embedding, var_list=local_network_variables, grad_loss=self._egrads)
 
         # Gradients from target: Here, we compute the gradient terms for the downstream child and
         # the local variables but with respect to the target loss. These get sent downstream and used to
         # optimize the local variables.
-        self._tdgrads = optimizer.compute_gradients(loss=target_loss, var_list=[self._cspikes])[0][0]
-        self._tlgrads = optimizer.compute_gradients(loss=target_loss, var_list=tf.compat.v1.trainable_variables())
+        self._tdgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=[self._cspikes])[0][0]
+        self._tlgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=local_network_variables)
 
         # Syn step: Train step which applies the synthetic input grads to the synthetic input model.
         self._syn_step = optimizer.apply_gradients(self._syn_grads)

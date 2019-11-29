@@ -127,9 +127,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         '--n_train_steps',
-        default=10000,
+        default=10000000,
         type=int,
-        help='Training steps. Default n_train_steps=10000'
+        help='Training steps. Default n_train_steps=1000000'
     )
 
     hparams = parser.parse_args()
