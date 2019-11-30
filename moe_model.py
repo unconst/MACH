@@ -142,6 +142,7 @@ class Mach:
 
         if do_train:
             fetches['target_step'] = self._tstep
+            fetches['gate_step'] = self._gstep
 
         # We train the synthetic model when we query our child.
         if not use_synthetic:
@@ -202,7 +203,7 @@ class Mach:
         zeros = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
         feeds = {
             self._spikes: spikes, # Spikes from query.
-            self._egrads: grads.reshape((-1, self._hparams.n_embedding)), # Embedding gradients from parent.
+            self._egrads: grads, # Embedding gradients from parent.
             self._cspikes: zeros, # Zeros from children.
             self._use_synthetic: False, # Do not use Synthetic.
             self._keep_rate: 1.0 # No Dropout.
@@ -229,22 +230,22 @@ class Mach:
         # dropout prob.
         self._keep_rate = tf.placeholder_with_default(1.0, shape=(), name='keep_rate')
 
-
         # Gating Network
         # Gating network.
-        gates, self._load = noisy_top_k_gating(   self._spikes,
+        with tf.compat.v1.variable_scope("gate"):
+            gates, self._load = noisy_top_k_gating(   self._spikes,
                                                   self._hparams.n_components - 1,
                                                   train=True )
-        dispatcher = SparseDispatcher(self._hparams.n_components-1, gates)
-        self._expert_inputs = dispatcher.dispatch(self._spikes)
+            dispatcher = SparseDispatcher(self._hparams.n_components-1, gates)
+            self._expert_inputs = dispatcher.dispatch(self._spikes)
 
-        # Join expert inputs.
-        self._expert_outputs = []
-        for i in range(self._hparams.n_components - 1):
-            self._expert_outputs.append(tf.compat.v1.placeholder_with_default(tf.zeros([tf.shape(self._expert_inputs[i])[0], self._hparams.n_embedding]), [None, self._hparams.n_embedding], name='einput' + str(i)))
+            # Join expert inputs.
+            self._expert_outputs = []
+            for i in range(self._hparams.n_components - 1):
+                self._expert_outputs.append(tf.compat.v1.placeholder_with_default(tf.zeros([tf.shape(self._expert_inputs[i])[0], self._hparams.n_embedding]), [None, self._hparams.n_embedding], name='einput' + str(i)))
 
-        # Child spikes if needed.
-        self._cspikes = dispatcher.combine(self._expert_outputs)
+            # Child spikes if needed.
+            self._cspikes = dispatcher.combine(self._expert_outputs)
 
 
         # Synthetic weights and biases.
@@ -317,6 +318,7 @@ class Mach:
         # optimize the local variables.
         self._tdgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._expert_outputs)
         self._tlgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=local_network_variables)
+        self._tggrads = optimizer.compute_gradients(loss=self._target_loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="gate"))
 
         # Syn step: Train step which applies the synthetic input grads to the synthetic input model.
         self._syn_step = optimizer.apply_gradients(self._syn_grads)
@@ -327,6 +329,9 @@ class Mach:
 
         # Target trainstep: Train step which applies the gradients calculated w.r.t the target loss.
         self._tstep = optimizer.apply_gradients(self._tlgrads)
+
+        # Gate step.
+        self._gstep = optimizer.apply_gradients(self._tggrads)
 
         # Metrics:
 
