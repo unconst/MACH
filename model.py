@@ -75,6 +75,7 @@ class Mach:
             # Run train step.
             batch_x, batch_y = self._mnist.train.next_batch(self._hparams.batch_size)
             self._run_graph(batch_x, batch_y, keep_prop=0.95, use_synthetic=False, do_train=True, do_metrics=False)
+            self._run_graph(batch_x, batch_y, keep_prop=0.95, use_synthetic=True, do_train=True, do_metrics=False)
 
             # Run test step and print.
             if step % self._hparams.n_print == 0:
@@ -113,8 +114,8 @@ class Mach:
                 self._tblogger.log_scalar('downstream weight magnitude', tr_out['downstream_weight_magnitude'][0], step)
 
                 # Downstream Integrate gradients.
-                self._tblogger.log_scalar('downstream integrate gradients score', syn_val_out['downstream_integrated_gradients_score'], step)
-                self._tblogger.log_scalar('inputs integrate gradients score',  syn_val_out['input_integrated_gradients_score'], step)
+                self._tblogger.log_scalar('downstream integrated gradients score', syn_val_out['downstream_integrated_gradients_score'], step)
+                self._tblogger.log_scalar('inputs integrated gradients score',  syn_val_out['input_integrated_gradients_score'], step)
 
 
                 logger.info('{}: [val: {} - {}  tr: {} - {}]', self.name, val_out['accuracy'][0], syn_val_out['accuracy'][0], tr_out['accuracy'][0], syn_tr_out['accuracy'][0])
@@ -157,7 +158,7 @@ class Mach:
         if not use_synthetic:
             fetches['synthetic_loss'] = self._syn_loss # Distillation loss.
 
-        if not use_synthetic and do_train:
+        if do_train:
             fetches['synthetic_step'] = self._syn_step # Synthetic step.
             fetches['child_gradients'] = self._tdgrads
 
@@ -287,7 +288,7 @@ class Mach:
 
         # Switch between synthetic embedding or true_embedding
         self._downstream = tf.cond(tf.equal(self._use_synthetic, tf.constant(True)),
-                              true_fn=lambda: tf.stop_gradient(syn_cspikes),
+                              true_fn=lambda: syn_cspikes,
                               false_fn=lambda: self._cspikes)
 
         # Embedding: Apply the hidden layer to the spikes and embeddings from the previous component.
@@ -312,7 +313,7 @@ class Mach:
         optimizer = tf.compat.v1.train.AdamOptimizer(1e-4)
 
         # syn_grads: Gradient terms for the synthetic inputs.
-        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss, var_list=synthetic_network_variables)
+        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss + self._target_loss, var_list=synthetic_network_variables)
 
         # Embedding grads: Here, we compute the gradient terms for the embedding with respect
         # to the gradients passed from the parent (a.k.a egrads). Dgrads is the gradient for
