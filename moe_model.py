@@ -24,6 +24,9 @@ import numpy as np
 import tensorflow as tf
 import threading
 
+# Mixture of experts.
+from utils_moe import noisy_top_k_gating
+from utils_moe import SparseDispatcher
 
 class Mach:
     def __init__(self, name, mnist, hparams, tblogger):
@@ -38,7 +41,7 @@ class Mach:
         self._mnist = mnist
         self._hparams = hparams
         self._tblogger = tblogger
-        self._child = None
+        self._children = None
         self._running = False
         self._graph = tf.Graph()
         self._session = tf.compat.v1.Session(graph=self._graph)
@@ -46,11 +49,12 @@ class Mach:
             self._model_fn()
             self._session.run(tf.compat.v1.global_variables_initializer())
 
-    def set_child(self, child):
-        """Sets passed component as child.
+    def set_children(self, children):
+        """Set passed components as children.
         """
-        assert(type(child) == type(self))
-        self._child = child
+        assert(type(children) == list)
+        assert(type(children[0]) == type(self))
+        self._children = children
 
     def start(self):
         """Start the training loop. Stops on call to stop.
@@ -99,30 +103,7 @@ class Mach:
                 self._tblogger.log_scalar('training accuracy using synthetic', syn_tr_out['accuracy'][0], step)
                 self._tblogger.log_scalar('training_accuracy using child', tr_out['accuracy'][0], step)
 
-                # Target loss.
-                self._tblogger.log_scalar('training target loss using synthetic', syn_tr_out['target_loss'][0], step)
-                self._tblogger.log_scalar('training target loss using child', tr_out['target_loss'][0], step)
-
-                # Synthetic loss.
-                self._tblogger.log_scalar('training synthetic loss', tr_out['synthetic_loss'], step)
-                self._tblogger.log_scalar('validation synthetic loss', val_out['synthetic_loss'], step)
-
-                # Inputs score.
-                self._tblogger.log_scalar('inputs pruning score', tr_out['inputs_pruning_score'][0], step)
-                self._tblogger.log_scalar('inputs absolute sum of gradients', tr_out['inputs_absolute_gradient'][0], step)
-                self._tblogger.log_scalar('inputs weight magnitude', tr_out['inputs_weight_magnitude'][0], step)
-
-                # Downstream score.
-                self._tblogger.log_scalar('downstream pruning score', tr_out['downstream_pruning_score'][0], step)
-                self._tblogger.log_scalar('downstream absolute sum of gradients', tr_out['downstream_absolute_gradient'][0], step)
-                self._tblogger.log_scalar('downstream weight magnitude', tr_out['downstream_weight_magnitude'][0], step)
-
-                # Downstream Integrate gradients.
-                self._tblogger.log_scalar('downstream integrated gradients score', syn_val_out['downstream_integrated_gradients_score'], step)
-                self._tblogger.log_scalar('inputs integrated gradients score',  syn_val_out['input_integrated_gradients_score'], step)
-
-
-                logger.info('{}: [val: {} - {}  tr: {} - {}]', self.name, val_out['accuracy'][0], syn_val_out['accuracy'][0], tr_out['accuracy'][0], syn_tr_out['accuracy'][0])
+                logger.info('{}: [v{}, l{}]', self.name, syn_val_out['accuracy'][0], syn_val_out['load'])
             if step > self._hparams.n_train_steps:
                 self.running = False
             step+=1
@@ -138,19 +119,23 @@ class Mach:
             do_train (bool): do we trigger training step.
         """
 
-        # Query child if exists.
-        cspikes =  np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
-        if self._child and not use_synthetic:
-            cspikes = self._child.spike(spikes)
+        # If not synthetic, use experts.
 
-        # Build feeds.
         feeds = {
             self._spikes: spikes, # Mnist 784 input.
-            self._cspikes: cspikes, # Child inputs.
             self._targets: targets, # Mnist 1-hot Targets.
-            self._use_synthetic: use_synthetic, # Do we use synthetic inputs.
             self._keep_rate: keep_prop, # Dropout.
+            self._use_synthetic: use_synthetic,
         }
+        if not use_synthetic:
+            # Run gating to get outgoing tensors.
+            gate_feeds = {self._spikes: spikes}
+            expert_inputs = self._session.run(self._expert_inputs, gate_feeds)
+            for i, child in enumerate(self._children):
+                feeds[self._expert_outputs[i]] = child.spike(expert_inputs[i])
+
+        else:
+            feeds[self._cspikes] = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
 
         # Build fetches.
         fetches = {}
@@ -164,26 +149,20 @@ class Mach:
 
         if do_train:
             fetches['synthetic_step'] = self._syn_step # Synthetic step.
-            fetches['child_gradients'] = self._tdgrads
+            fetches['expert_gradients'] = self._tdgrads
 
         if do_metrics:
             fetches['accuracy'] = self._accuracy, # Classification accuracy.
             fetches['target_loss'] = self._target_loss, # Target accuracy.
-            fetches['inputs_pruning_score'] = self._inputs_pruning_score, # Salience of inputs.
-            fetches['inputs_weight_magnitude'] =  self._inputs_weight_magnitude,
-            fetches['inputs_absolute_gradient'] = self._inputs_absolute_gradient,
-            fetches['downstream_pruning_score'] = self._downstream_pruning_score, # Salience of downstream.
-            fetches['downstream_weight_magnitude'] = self._downstream_weight_magnitude,
-            fetches['downstream_absolute_gradient'] = self._downstream_absolute_gradient,
-            fetches['input_integrated_gradients_score'] = self._input_ig
-            fetches['downstream_integrated_gradients_score'] = self._downstream_ig
+            fetches['load'] = self._load
 
         # Run graph.
         run_output = self._session.run(fetches, feeds)
 
         # Pass the gradients to the child.
-        if self._child and do_train and not use_synthetic:
-            self._child.grade(spikes, run_output['child_gradients'])
+        if do_train and not use_synthetic:
+            for i, child in enumerate(self._children):
+                child.grade(expert_inputs[i], run_output['expert_gradients'][i][0])
 
         # Return the batch accuracy.
         return run_output
@@ -223,7 +202,7 @@ class Mach:
         zeros = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
         feeds = {
             self._spikes: spikes, # Spikes from query.
-            self._egrads: grads, # Embedding gradients from parent.
+            self._egrads: grads.reshape((-1, self._hparams.n_embedding)), # Embedding gradients from parent.
             self._cspikes: zeros, # Zeros from children.
             self._use_synthetic: False, # Do not use Synthetic.
             self._keep_rate: 1.0 # No Dropout.
@@ -240,18 +219,33 @@ class Mach:
 
         # Placeholders.
         # Spikes: inputs from the dataset of arbitrary batch_size.
-        self._spikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_inputs])
-        # Cspikes: inputs from previous component. Size is the same as the embeddings produced
-        # by this component.
-        self._cspikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding])
+        self._spikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_inputs], name='spikes')
         # Egrads: Gradient for this component's embedding, passed by a parent.
-        self._egrads = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding])
+        self._egrads = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding], name='embedding_grads')
         # Targets: Supervised signals used during training and testing.
-        self._targets = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_targets])
+        self._targets = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_targets], name='targets')
         # use_synthetic: Flag, use synthetic downstream spikes.
         self._use_synthetic = tf.compat.v1.placeholder(tf.bool, shape=[], name='use_synthetic')
         # dropout prob.
-        self._keep_rate = tf.placeholder_with_default(1.0, shape=())
+        self._keep_rate = tf.placeholder_with_default(1.0, shape=(), name='keep_rate')
+
+
+        # Gating Network
+        # Gating network.
+        gates, self._load = noisy_top_k_gating(   self._spikes,
+                                                  self._hparams.n_components - 1,
+                                                  train=True )
+        dispatcher = SparseDispatcher(self._hparams.n_components-1, gates)
+        self._expert_inputs = dispatcher.dispatch(self._spikes)
+
+        # Join expert inputs.
+        self._expert_outputs = []
+        for i in range(self._hparams.n_components - 1):
+            self._expert_outputs.append(tf.compat.v1.placeholder_with_default(tf.zeros([tf.shape(self._expert_inputs[i])[0], self._hparams.n_embedding]), [None, self._hparams.n_embedding], name='einput' + str(i)))
+
+        # Child spikes if needed.
+        self._cspikes = dispatcher.combine(self._expert_outputs)
+
 
         # Synthetic weights and biases.
         syn_weights = {
@@ -298,7 +292,7 @@ class Mach:
         hidden_layer1 = tf.nn.relu(tf.add(tf.matmul(self._input_layer, weights['w1']), biases['b1']))
         hidden_layer2 = tf.nn.relu(tf.add(tf.matmul(hidden_layer1, weights['w2']), biases['b2']))
         drop_hidden_layer2 = tf.nn.dropout(hidden_layer2, self._keep_rate)
-        self._embedding = tf.nn.relu(tf.add(tf.matmul(drop_hidden_layer2, weights['w3']), biases['b3']))
+        self._embedding = tf.reshape(tf.nn.relu(tf.add(tf.matmul(drop_hidden_layer2, weights['w3']), biases['b3'])), [-1, self._hparams.n_embedding])
 
 
         # Target: the mnist target.
@@ -315,13 +309,13 @@ class Mach:
         # to the gradients passed from the parent (a.k.a egrads). Dgrads is the gradient for
         # the downstream component (child) and elgrads are the gradient terms for the the local
         # FFNN.
-        self._cgrads = optimizer.compute_gradients(loss=self._embedding, var_list=[self._cspikes], grad_loss=self._egrads)[0][0]
+        self._cgrads = optimizer.compute_gradients(loss=self._embedding, var_list=self._expert_outputs, grad_loss=self._egrads)[0][0]
         self._elgrads = optimizer.compute_gradients(loss=self._embedding, var_list=local_network_variables, grad_loss=self._egrads)
 
         # Gradients from target: Here, we compute the gradient terms for the downstream child and
         # the local variables but with respect to the target loss. These get sent downstream and used to
         # optimize the local variables.
-        self._tdgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=[self._cspikes])[0][0]
+        self._tdgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._expert_outputs)
         self._tlgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=local_network_variables)
 
         # Syn step: Train step which applies the synthetic input grads to the synthetic input model.
@@ -339,48 +333,3 @@ class Mach:
         # Accuracy
         correct = tf.equal(tf.argmax(self._logits, 1), tf.argmax(self._targets, 1))
         self._accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
-
-        # Input information score.
-        self._inputs_grads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._spikes)
-        self._inputs_absolute_gradient = tf.reduce_sum(tf.reduce_sum(tf.abs(self._inputs_grads[0][0])))
-        self._inputs_pruning_score = self._pruning_score(self._spikes, self._inputs_grads[0][0])
-        self._inputs_weight_magnitude = tf.reduce_sum(tf.reduce_sum(tf.slice(weights['w1'], [0, 0], [784, -1])))
-
-        # Downstream information score.
-        self._downstream_grads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._downstream)
-        self._downstream_absolute_gradient = tf.reduce_sum(tf.reduce_sum(tf.abs(self._downstream_grads[0][0])))
-        self._downstream_pruning_score = self._pruning_score(self._downstream, self._downstream_grads[0][0])
-        self._downstream_weight_magnitude = tf.reduce_sum(tf.reduce_sum(tf.slice(weights['w1'], [784, 0], [-1, -1])))
-
-        # Integrated Gradients.
-        integrated_gradients = tf.abs(self._integrated_gradients(self._logits, self._input_layer, 10))
-        total_ig = tf.reduce_sum(integrated_gradients)
-        downstream_ig = tf.reduce_sum(tf.slice(integrated_gradients, [0, 784], [-1, -1]))
-        input_ig = tf.reduce_sum(tf.slice(integrated_gradients, [0, 0], [-1, 784]))
-        self._downstream_ig = downstream_ig/total_ig
-        self._input_ig = input_ig/total_ig
-
-    def _integrated_gradients(self, target, input_tensor, steps):
-        baseline = tf.zeros_like(input_tensor)
-        scaled_inputs = [baseline + (float(i)/steps)*(input_tensor - baseline) for i in range(0, steps+1)]
-
-        grads = []
-        for next_inp in scaled_inputs:
-            grads.append(tf.gradients(ys=target, xs=input_tensor)[0])
-
-        trapazoidal_grads = []
-        for i in range(len(grads)-1):
-            trapazoidal_grads.append((grads[i] + grads[i+1])/2)
-
-        avg_trapazoidal = tf.add_n(trapazoidal_grads)/len(grads)
-        avg_grads = tf.reduce_mean(avg_trapazoidal, axis=0)
-        integrated_gradients = (input_tensor - baseline) * avg_grads  # shape: <inp.shape>
-
-        return integrated_gradients
-
-    def _pruning_score(self, value, gradient):
-        g = tf.tensordot(-value, gradient, axes=2)
-        gxgx = tf.multiply(gradient, gradient)
-        H = tf.tensordot(-value, gxgx, axes=2)
-        score = tf.reduce_sum(g + H)
-        return score
