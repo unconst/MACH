@@ -34,7 +34,7 @@ For a deeper description read the [research](https://www.overleaf.com/read/fvyqc
 ## Run
 
 ```
-$ pip install -r requirements.txt
+$ virtualenv env && source env/bin/activate && pip install -r requirements.txt
 $ python main.py
 ```
 ---
