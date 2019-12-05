@@ -10,7 +10,6 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from fa2 import ForceAtlas2
-from curved_edges import curved_edges
 
 def load_data_and_constants(hparams):
     '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''
