@@ -38,13 +38,18 @@ class Mach:
             tblogger: tensorboard logger class.
         """
         self.name = name
+        self.children = None
+        self.revenue = 0.0
+        self.step = 0
+        self.weights = {self.name: 1.0}
+
         self._mnist = mnist
         self._hparams = hparams
         self._tblogger = tblogger
-        self._children = None
         self._running = False
         self._graph = tf.Graph()
         self._session = tf.compat.v1.Session(graph=self._graph)
+
         with self._graph.as_default():
             self._model_fn()
             self._session.run(tf.compat.v1.global_variables_initializer())
@@ -54,7 +59,9 @@ class Mach:
         """
         assert(type(children) == list)
         assert(type(children[0]) == type(self))
-        self._children = children
+        for child in children:
+            self.weights[child.name] = 0.0
+        self.children = children
 
     def start(self):
         """Start the training loop. Stops on call to stop.
@@ -74,7 +81,7 @@ class Mach:
     def _run(self):
         """Loops train and test continually.
         """
-        step = 0
+
         while self.running:
             # Training step.
             batch_x, batch_y = self._mnist.train.next_batch(self._hparams.batch_size)
@@ -86,27 +93,34 @@ class Mach:
             self._run_graph(batch_x, batch_y, keep_prop=0.95, use_synthetic=True, do_train=True, do_metrics=False)
 
             # Validation and tensorboard logs.
-            if step % self._hparams.n_print == 0:
+            if self.step % self._hparams.n_print == 0:
 
                 # Train / Validation with and without synthetic models.
-                tr_x, tr_y = self._mnist.train.next_batch(self._hparams.batch_size)
                 val_x = self._mnist.test.images
                 val_y = self._mnist.test.labels
-                syn_tr_out = self._run_graph(tr_x, tr_y, keep_prop=1.0, use_synthetic=True, do_train=False, do_metrics=True)
-                tr_out = self._run_graph(tr_x, tr_y, keep_prop=1.0, use_synthetic=False, do_train=False, do_metrics=True)
-                syn_val_out = self._run_graph(val_x, val_y, keep_prop=1.0, use_synthetic=True, do_train=False, do_metrics=True)
                 val_out = self._run_graph(val_x, val_y, keep_prop=1.0, use_synthetic=False, do_train=False, do_metrics=True)
 
                 # Accuracy metrics.
-                self._tblogger.log_scalar('validation accuracy using child', syn_val_out['accuracy'][0], step)
-                self._tblogger.log_scalar('validation accuracy using synthetic', val_out['accuracy'][0], step)
-                self._tblogger.log_scalar('training accuracy using synthetic', syn_tr_out['accuracy'][0], step)
-                self._tblogger.log_scalar('training_accuracy using child', tr_out['accuracy'][0], step)
+                self._tblogger.log_scalar('validation', val_out['accuracy'][0], self.step)
 
-                logger.info('{}: [v{}, l{}]', self.name, syn_val_out['accuracy'][0], syn_val_out['load'])
-            if step > self._hparams.n_train_steps:
+                # Revenue metrics
+                self._tblogger.log_scalar('revenue', val_out['revenue'][0], self.step)
+                for i, child in enumerate(self.children):
+                    self._tblogger.log_scalar('mask-' + str(child.name), val_out['masks'][i], self.step)
+                for i, child in enumerate(self.children):
+                    self._tblogger.log_scalar('weight-' + str(child.name), val_out['weights'][i+1], self.step)
+                self._tblogger.log_scalar('inloop', val_out['weights'][0], self.step)
+
+                # Set revenue and weights
+                self.revenue = val_out['revenue'][0]
+                for i, child in enumerate(self.children):
+                    self.weights[child.name] = val_out['weights'][i+1]
+                self.weights[self.name] = val_out['weights'][0]
+
+                logger.info('{}: [acc {}, rev: {}, mask: {}, w: {}]', self.name, val_out['accuracy'][0], val_out['revenue'][0], [mask[0] for mask in val_out['masks']], val_out['weights'])
+            if self.step > self._hparams.n_train_steps:
                 self.running = False
-            step+=1
+            self.step+=1
 
     def _run_graph(self, spikes, targets, keep_prop, use_synthetic, do_train, do_metrics):
         """Runs the graph and returns fetch outputs.
@@ -119,7 +133,7 @@ class Mach:
             do_train (bool): do we trigger training step.
         """
 
-        # If not synthetic, use experts.
+        # If not synthetic, use children.
 
         feeds = {
             self._spikes: spikes, # Mnist 784 input.
@@ -130,9 +144,9 @@ class Mach:
         if not use_synthetic:
             # Run gating to get outgoing tensors.
             gate_feeds = {self._spikes: spikes}
-            expert_inputs = self._session.run(self._expert_inputs, gate_feeds)
-            for i, child in enumerate(self._children):
-                feeds[self._expert_outputs[i]] = child.spike(expert_inputs[i])
+            child_inputs = self._session.run(self._child_inputs, gate_feeds)
+            for i, child in enumerate(self.children):
+                feeds[self._child_outputs[i]] = child.spike(child_inputs[i])
 
         else:
             feeds[self._cspikes] = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
@@ -150,20 +164,23 @@ class Mach:
 
         if do_train:
             fetches['synthetic_step'] = self._syn_step # Synthetic step.
-            fetches['expert_gradients'] = self._tdgrads
+            fetches['child_gradients'] = self._tdgrads
 
         if do_metrics:
             fetches['accuracy'] = self._accuracy, # Classification accuracy.
             fetches['target_loss'] = self._target_loss, # Target accuracy.
             fetches['load'] = self._load
+            fetches['revenue'] = self._revenue
+            fetches['masks'] = self._masks
+            fetches['weights'] = self._weights
 
         # Run graph.
         run_output = self._session.run(fetches, feeds)
 
         # Pass the gradients to the child.
         if do_train and not use_synthetic:
-            for i, child in enumerate(self._children):
-                child.grade(expert_inputs[i], run_output['expert_gradients'][i][0])
+            for i, child in enumerate(self.children):
+                child.grade(child_inputs[i], run_output['child_gradients'][i][0])
 
         # Return the batch accuracy.
         return run_output
@@ -221,31 +238,48 @@ class Mach:
         # Placeholders.
         # Spikes: inputs from the dataset of arbitrary batch_size.
         self._spikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_inputs], name='spikes')
+
         # Egrads: Gradient for this component's embedding, passed by a parent.
         self._egrads = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding], name='embedding_grads')
+
         # Targets: Supervised signals used during training and testing.
         self._targets = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_targets], name='targets')
+
         # use_synthetic: Flag, use synthetic downstream spikes.
         self._use_synthetic = tf.compat.v1.placeholder(tf.bool, shape=[], name='use_synthetic')
+
         # dropout prob.
         self._keep_rate = tf.placeholder_with_default(1.0, shape=(), name='keep_rate')
 
         # Gating Network
-        # Gating network.
         with tf.compat.v1.variable_scope("gate"):
             gates, self._load = noisy_top_k_gating(   self._spikes,
-                                                  self._hparams.n_components - 1,
-                                                  train=True )
+                                                      self._hparams.n_components - 1,
+                                                      train=True )
             dispatcher = SparseDispatcher(self._hparams.n_components-1, gates)
-            self._expert_inputs = dispatcher.dispatch(self._spikes)
+            self._child_inputs = dispatcher.dispatch(self._spikes)
 
-            # Join expert inputs.
-            self._expert_outputs = []
+            importance = tf.linalg.normalize(tf.reduce_sum(gates, 0))[0]
+            inloop = tf.Variable(tf.constant([1.0]))
+            self._weights = tf.linalg.normalize(tf.concat([inloop, importance], axis=0))[0]
+            self._revenue = tf.slice(self._weights, [0], [1])
+
+            # Join child inputs.
+            self._child_outputs = []
+            self._masks = []
             for i in range(self._hparams.n_components - 1):
-                self._expert_outputs.append(tf.compat.v1.placeholder_with_default(tf.zeros([tf.shape(self._expert_inputs[i])[0], self._hparams.n_embedding]), [None, self._hparams.n_embedding], name='einput' + str(i)))
+                child_output = tf.compat.v1.placeholder_with_default(tf.zeros([tf.shape(self._child_inputs[i])[0], self._hparams.n_embedding]), [None, self._hparams.n_embedding], name='einput' + str(i))
+
+                # Apply mask to the output.
+                child_mask = tf.nn.relu(tf.slice(self._weights, [i], [1]) - 0.2)
+                masked_child_output = child_mask * child_output
+
+                #self._child_outputs.append(masked_child_output)
+                self._masks.append(child_mask)
+                self._child_outputs.append(masked_child_output)
 
             # Child spikes if needed.
-            self._cspikes = dispatcher.combine(self._expert_outputs)
+            self._cspikes = dispatcher.combine(self._child_outputs)
 
 
         # Synthetic weights and biases.
@@ -300,25 +334,27 @@ class Mach:
         self._logits = tf.add(tf.matmul(self._embedding, weights['w4']), biases['b4'])
         self._target_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._targets, logits=self._logits))
 
+        self._full_loss = self._target_loss - self._revenue
+
         # Optimizer: The optimizer for this component, could be different accross components.
         optimizer = tf.compat.v1.train.AdamOptimizer(1e-4)
 
         # syn_grads: Gradient terms for the synthetic inputs.
-        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss + self._target_loss, var_list=synthetic_network_variables)
+        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss + self._full_loss, var_list=synthetic_network_variables)
 
         # Embedding grads: Here, we compute the gradient terms for the embedding with respect
         # to the gradients passed from the parent (a.k.a egrads). Dgrads is the gradient for
         # the downstream component (child) and elgrads are the gradient terms for the the local
         # FFNN.
-        self._cgrads = optimizer.compute_gradients(loss=self._embedding, var_list=self._expert_outputs, grad_loss=self._egrads)[0][0]
+        self._cgrads = optimizer.compute_gradients(loss=self._embedding, var_list=self._child_outputs, grad_loss=self._egrads)[0][0]
         self._elgrads = optimizer.compute_gradients(loss=self._embedding, var_list=local_network_variables, grad_loss=self._egrads)
 
         # Gradients from target: Here, we compute the gradient terms for the downstream child and
         # the local variables but with respect to the target loss. These get sent downstream and used to
         # optimize the local variables.
-        self._tdgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._expert_outputs)
-        self._tlgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=local_network_variables)
-        self._tggrads = optimizer.compute_gradients(loss=self._target_loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="gate"))
+        self._tdgrads = optimizer.compute_gradients(loss=self._full_loss, var_list=self._child_outputs)
+        self._tlgrads = optimizer.compute_gradients(loss=self._full_loss, var_list=local_network_variables)
+        self._tggrads = optimizer.compute_gradients(loss=self._full_loss, var_list=tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="gate"))
 
         # Syn step: Train step which applies the synthetic input grads to the synthetic input model.
         self._syn_step = optimizer.apply_gradients(self._syn_grads)

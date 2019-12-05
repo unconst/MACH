@@ -12,24 +12,25 @@ import time
 
 from moe_model import Mach
 from utils import TBLogger
+from utils import metagraph_summary
 from utils import next_run_prefix
 from utils import load_data_and_constants
 
-def run(hparams, components):
-    try:
+
+def run(hparams, run_prefix, tblogger, components):
+    for c in components:
+        c.start()
+    logger.info('Begin wait on main...')
+    running = True
+
+    while running:
         for c in components:
-            c.start()
-        logger.info('Begin wait on main...')
-        running = True
-        while running:
-            for c in components:
-                if c.running == False:
-                    running = False
-            time.sleep(5)
-    except:
-        logger.debug('tear down.')
-        for c in components:
-            c.stop()
+            if c.running == False:
+                running = False
+        metagraph_summary(components, tblogger, run_prefix, components[0].step, hparams)
+
+    for c in components:
+        c.stop()
 
 def main(hparams):
 
@@ -54,8 +55,12 @@ def main(hparams):
     for i in range(hparams.n_components):
         components[i].set_children(components[:i] + components[i+1:])
 
+    # metagraph logger
+    logdir = hparams.log_dir + "/" + run_prefix + "/" + 'm'
+    tblogger = TBLogger(logdir)
+
     # Run experiment.
-    run(hparams, components)
+    run(hparams, run_prefix, tblogger, components)
 
 
 if __name__ == "__main__":

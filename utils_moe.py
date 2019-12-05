@@ -20,6 +20,64 @@ import tensorflow as tf
 
 DEFAULT_DEV_STRING = "existing_device"
 
+import io
+import matplotlib.pyplot as plt
+import tensorflow as tf
+
+def _networkx(components):
+    G = nx.DiGraph()
+
+    node_labels = {}
+    node_sizes = []
+    for c in components:
+        G.add_node(c.name)
+        node_labels[c.name] = str(c.name)
+        node_sizes.append(0.1 + c.revenue)
+
+    edge_labels = {}
+    for parent in components:
+        for child in components:
+            G.add_edge(parent.name, child.name)
+            edge_labels[(parent.name, child.name)] = "%.3f" % parent.weights[child.name]
+
+    forceatlas2 = ForceAtlas2(
+                            # Behavior alternatives
+                            outboundAttractionDistribution=True,  # Dissuade hubs
+                            linLogMode=False,  # NOT IMPLEMENTED
+                            adjustSizes=False,  # Prevent overlap (NOT IMPLEMENTED)
+                            edgeWeightInfluence=1.0,
+
+                            # Performance
+                            jitterTolerance=1.0,  # Tolerance
+                            barnesHutOptimize=True,
+                            barnesHutTheta=1.2,
+                            multiThreaded=False,  # NOT IMPLEMENTED
+
+                            # Tuning
+                            scalingRatio=2.0,
+                            strongGravityMode=False,
+                            gravity=1.0,
+
+                            # Log
+                            verbose=False)
+
+    positions = forceatlas2.forceatlas2_networkx_layout(G, pos=None, iterations=2000)
+    pos_higher = {}
+    y_off = 0.2
+    for k, v in positions.items():
+        pos_higher[k] = (v[0], v[1]+y_off)
+
+    nx.draw_networkx_nodes(G, positions, with_labels=True, node_size=node_sizes, node_color="blue", alpha=0.4)
+    nx.draw_networkx_edges(G, positions, arrowstyle='->', arrowsize=15, edge_color="green", edge_labels=edge_labels, alpha=0.05, label_pos=0.3)
+    nx.draw_networkx_labels(G, pos_higher, node_labels)
+    nx.draw_networkx_edge_labels(G, pos_higher, edge_labels=edge_labels, with_labels=True, label_pos=0.3)
+
+def metagraph_plot(components, tblogger, step, hparams):
+    figure = plt.figure(figsize=(10, 10))
+    plt.axis('off')
+    plt.savefig(hparams.log_dir + "/" + run_prefix + str('/metagraph'))
+    _networkx(components)
+    tblogger.log_plot('metagraph', step)
 
 def add_scope(scope=None, scope_fn=None):
   """Return a decorator which add a TF name/variable scope to a function.

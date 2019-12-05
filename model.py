@@ -148,7 +148,7 @@ class Mach:
             self._spikes: spikes, # Mnist 784 input.
             self._cspikes: cspikes, # Child inputs.
             self._targets: targets, # Mnist 1-hot Targets.
-            self._use_synthetic: use_synthetic, # Do we use synthetic inputs.
+            self._use_synthetic: use_synthetic, # Do we se synthetic inputs.
             self._keep_rate: keep_prop, # Dropout.
         }
 
