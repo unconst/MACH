@@ -157,14 +157,12 @@ class Mach:
 
         if do_train:
             fetches['target_step'] = self._tstep
+            fetches['synthetic_step'] = self._syn_step # Synthetic step.
+            fetches['child_gradients'] = self._tdgrads
 
         # We train the synthetic model when we query our child.
         if not use_synthetic:
             fetches['synthetic_loss'] = self._syn_loss # Distillation loss.
-
-        if do_train:
-            fetches['synthetic_step'] = self._syn_step # Synthetic step.
-            fetches['child_gradients'] = self._tdgrads
 
         if do_metrics:
             fetches['accuracy'] = self._accuracy, # Classification accuracy.
@@ -306,7 +304,7 @@ class Mach:
         self._target_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._targets, logits=self._logits))
 
         # Optimizer: The optimizer for this component, could be different accross components.
-        optimizer = tf.compat.v1.train.AdamOptimizer(1e-4)
+        optimizer = tf.compat.v1.train.AdamOptimizer(self._hparams.learning_rate)
 
         # syn_grads: Gradient terms for the synthetic inputs.
         self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss + self._target_loss, var_list=synthetic_network_variables)

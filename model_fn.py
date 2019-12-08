@@ -10,8 +10,33 @@ class Modelfn():
     def _gate_combine(self, spikes):
         raise NotImplementedError
 
-    def _tokenizer_network(self, spikes):
-        raise NotImplementedError
+    def _tokenizer_network(self, x_batch):
+
+        # Tokenization with lookup table. Retrieves a 1 x vocabulary sized
+        # vector.
+        vocabulary_table = tf.contrib.lookup.index_table_from_tensor(
+            mapping=tf.constant(self._string_map),
+            num_oov_buckets=1,
+            default_value=0)
+
+        # Token embedding matrix is a matrix of vectors. During lookup we pull
+        # the vector corresponding to the 1-hot encoded vector from the
+        # vocabulary table.
+        embedding_matrix = tf.Variable(
+            tf.random.uniform([self._hparams.n_vocabulary, self._hparams.n_embedding], -1.0,
+                              1.0))
+
+        # Tokenizer network.
+        x_batch = tf.reshape(x_batch, [-1])
+
+        # Apply tokenizer lookup.
+        x_batch = vocabulary_table.lookup(x_batch)
+
+        # Apply table lookup to retrieve the embedding.
+        x_batch = tf.nn.embedding_lookup(embedding_matrix, x_batch)
+        x_batch = tf.reshape(x_batch, [-1, self._hparams.n_embedding])
+
+        raise x_batch
 
     def _synthetic_network(self, tokenized_spikes):
         # Synthetic weights and biases.
@@ -147,7 +172,8 @@ class Modelfn():
         parent_step = optimizer.apply_gradients(parent_grads)
 
         # Target step.
-        target_step = optimizer.apply_gradients(parent_grads)
+        target_step = optimizer.apply_gradients(target_grads)
+
 
     def _model_fn(self):
     """ Tensorflow model function
