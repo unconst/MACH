@@ -26,17 +26,19 @@ import threading
 
 
 class Mach:
-    def __init__(self, name, mnist, hparams, tblogger):
+    def __init__(self, name, dataset, hparams, tblogger):
         """Initialize a Mach learning component.
         Args:
             name: component name.
-            mnist: mnist dataset from utils.load_data_and_constants
+            dataset: dataset from utils.load_data_and_constants, specified via arguments.
             hparams: component hyperparameters from arguments.
             tblogger: tensorboard logger class.
         """
         self.name = name
-        self._mnist = mnist
         self._hparams = hparams
+        self._train = dataset['train']
+        self._test = dataset['test']
+        self._batch = 0
         self._tblogger = tblogger
         self._child = None
         self._running = False
@@ -67,13 +69,34 @@ class Mach:
         logger.info('joining thread {}', self.name)
         self._thread.join()
 
+    def next_batch(self):
+        # Get next training batch
+
+        if self._batch >= len(self._train): # self._train is already divided into batches here
+            # epoch is done
+            self._batch = 0
+
+            for t in range(0, len(self._train)):
+                np.random.shuffle(self._train[t])
+
+        training_batch = self._train[self._batch]
+        batch_x = [t[0] for t in training_batch]
+        batch_y = [t[1] for t in training_batch]
+
+        # update to the next batch
+        self._batch = self._batch + 1
+
+        return batch_x, batch_y
+
+
     def _run(self):
         """Loops train and test continually.
         """
         step = 0
+
         while self.running:
             # Training step.
-            batch_x, batch_y = self._mnist.train.next_batch(self._hparams.batch_size)
+            batch_x, batch_y = self.next_batch()
 
             # Train child.
             self._run_graph(batch_x, batch_y, keep_prop=0.95, use_synthetic=False, do_train=True, do_metrics=False)
@@ -85,9 +108,9 @@ class Mach:
             if step % self._hparams.n_print == 0:
 
                 # Train / Validation with and without synthetic models.
-                tr_x, tr_y = self._mnist.train.next_batch(self._hparams.batch_size)
-                val_x = self._mnist.test.images
-                val_y = self._mnist.test.labels
+                tr_x, tr_y = self.next_batch()
+                val_x = [t[0] for t in self._test]
+                val_y = [t[1] for t in self._test]
                 syn_tr_out = self._run_graph(tr_x, tr_y, keep_prop=1.0, use_synthetic=True, do_train=False, do_metrics=True)
                 tr_out = self._run_graph(tr_x, tr_y, keep_prop=1.0, use_synthetic=False, do_train=False, do_metrics=True)
                 syn_val_out = self._run_graph(val_x, val_y, keep_prop=1.0, use_synthetic=True, do_train=False, do_metrics=True)

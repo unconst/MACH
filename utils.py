@@ -4,7 +4,7 @@ import random
 import io
 import tensorflow as tf
 import time
-from tensorflow.examples.tutorials.mnist import input_data
+import tensorflow_datasets as tfds
 
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -14,10 +14,49 @@ from fa2 import ForceAtlas2
 def load_data_and_constants(hparams):
     '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''
     # Load mnist data
-    mnist = input_data.read_data_sets("data/MNIST_data/", one_hot=True)
-    hparams.n_inputs = 784
-    hparams.n_targets = 10
-    return mnist, hparams
+
+    dataset_builder = tfds.builder(hparams.dataset)
+    dataset_builder.download_and_prepare()
+    dataset = dataset_builder.as_dataset()
+    dataset_info = dataset_builder.info
+
+    # Load data features to extract shapes and targets
+    dataset_features = dataset_info.features
+    inputs_shape = dataset_features['image'].shape
+
+    hparams.n_inputs = inputs_shape[0] * inputs_shape[1] * inputs_shape[2]
+    hparams.n_targets = dataset_features['label'].num_classes
+
+    dataset = prepare_dataset(dataset, hparams.batch_size, hparams.n_inputs, hparams.n_targets)
+
+    #hparams.n_inputs = 784
+    #hparams.n_targets = 10
+    return dataset, hparams
+
+def one_hot_encode(target, num_classes):
+    one_hot_encoded_arr = np.zeros((num_classes, 1))
+    one_hot_encoded_arr[target] = 1
+    return one_hot_encoded_arr.flatten()
+
+def prepare_dataset(dataset, batch_size, n_inputs, n_targets):
+    train = list(tfds.as_numpy(dataset['train']))
+    test = list(tfds.as_numpy(dataset['test']))
+    train_set = []
+    test_set = []
+
+    for t in range(0, len(train), batch_size):
+        train_batch = []
+        for i in range(t, t + batch_size):
+            train_batch.append([train[i]['image'].reshape(1, n_inputs).astype(np.float32).flatten(), one_hot_encode(train[i]['label'], 10)])
+        train_set.append(train_batch)
+
+    for t in test:
+        test_set.append([t['image'].reshape(1, n_inputs).astype(np.float32).flatten(), one_hot_encode(t['label'], n_targets)])
+
+    dataset['train'] = train_set
+    dataset['test'] = test_set
+
+    return dataset
 
 def next_nounce():
     return random.randint(0, 1000000000)
