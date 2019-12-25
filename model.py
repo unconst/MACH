@@ -343,7 +343,7 @@ class Mach:
                                                        shape=[],
                                                        name='use_synthetic')
         # dropout prob.
-        self._keep_rate = tf.placeholder_with_default(1.0, shape=())
+        self._keep_rate = tf.compat.v1.placeholder_with_default(1.0, shape=())
 
         # Synthetic weights and biases.
         syn_weights = {
