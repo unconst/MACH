@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from fa2 import ForceAtlas2
 
+
 def load_data_and_constants(hparams):
     '''Returns the dataset and sets hparams.n_inputs and hparamsn_targets.'''
     # Load mnist data
@@ -27,16 +28,19 @@ def load_data_and_constants(hparams):
     hparams.n_inputs = inputs_shape[0] * inputs_shape[1] * inputs_shape[2]
     hparams.n_targets = dataset_features['label'].num_classes
 
-    dataset = prepare_dataset(dataset, hparams.batch_size, hparams.n_inputs, hparams.n_targets)
+    dataset = prepare_dataset(dataset, hparams.batch_size, hparams.n_inputs,
+                              hparams.n_targets)
 
     #hparams.n_inputs = 784
     #hparams.n_targets = 10
     return dataset, hparams
 
+
 def one_hot_encode(target, num_classes):
     one_hot_encoded_arr = np.zeros((num_classes, 1))
     one_hot_encoded_arr[target] = 1
     return one_hot_encoded_arr.flatten()
+
 
 def prepare_dataset(dataset, batch_size, n_inputs, n_targets):
     train = list(tfds.as_numpy(dataset['train']))
@@ -47,22 +51,32 @@ def prepare_dataset(dataset, batch_size, n_inputs, n_targets):
     for t in range(0, len(train), batch_size):
         train_batch = []
         for i in range(t, t + batch_size):
-            train_batch.append([train[i]['image'].reshape(1, n_inputs).astype(np.float32).flatten(), one_hot_encode(train[i]['label'], 10)])
+            train_batch.append([
+                train[i]['image'].reshape(1, n_inputs).astype(
+                    np.float32).flatten(),
+                one_hot_encode(train[i]['label'], 10)
+            ])
         train_set.append(train_batch)
 
     for t in test:
-        test_set.append([t['image'].reshape(1, n_inputs).astype(np.float32).flatten(), one_hot_encode(t['label'], n_targets)])
+        test_set.append([
+            t['image'].reshape(1, n_inputs).astype(np.float32).flatten(),
+            one_hot_encode(t['label'], n_targets)
+        ])
 
     dataset['train'] = train_set
     dataset['test'] = test_set
 
     return dataset
 
+
 def next_nounce():
     return random.randint(0, 1000000000)
 
+
 def next_run_prefix():
     return str(int(time.time()))
+
 
 def _networkx(components):
     G = nx.DiGraph()
@@ -78,39 +92,57 @@ def _networkx(components):
     for parent in components:
         for child in components:
             G.add_edge(parent.name, child.name)
-            edge_labels[(parent.name, child.name)] = "%.3f" % parent.weights[child.name]
+            edge_labels[(parent.name,
+                         child.name)] = "%.3f" % parent.weights[child.name]
 
     forceatlas2 = ForceAtlas2(
-                            # Behavior alternatives
-                            outboundAttractionDistribution=True,  # Dissuade hubs
-                            linLogMode=False,  # NOT IMPLEMENTED
-                            adjustSizes=False,  # Prevent overlap (NOT IMPLEMENTED)
-                            edgeWeightInfluence=1.0,
+        # Behavior alternatives
+        outboundAttractionDistribution=True,  # Dissuade hubs
+        linLogMode=False,  # NOT IMPLEMENTED
+        adjustSizes=False,  # Prevent overlap (NOT IMPLEMENTED)
+        edgeWeightInfluence=1.0,
 
-                            # Performance
-                            jitterTolerance=1.0,  # Tolerance
-                            barnesHutOptimize=True,
-                            barnesHutTheta=1.2,
-                            multiThreaded=False,  # NOT IMPLEMENTED
+        # Performance
+        jitterTolerance=1.0,  # Tolerance
+        barnesHutOptimize=True,
+        barnesHutTheta=1.2,
+        multiThreaded=False,  # NOT IMPLEMENTED
 
-                            # Tuning
-                            scalingRatio=2.0,
-                            strongGravityMode=False,
-                            gravity=1.0,
+        # Tuning
+        scalingRatio=2.0,
+        strongGravityMode=False,
+        gravity=1.0,
 
-                            # Log
-                            verbose=False)
+        # Log
+        verbose=False)
 
     positions = nx.layout.circular_layout(G)
     pos_higher = {}
     y_off = 0.2
     for k, v in positions.items():
-        pos_higher[k] = (v[0], v[1]+y_off)
+        pos_higher[k] = (v[0], v[1] + y_off)
 
-    nx.draw_networkx_nodes(G, positions, with_labels=True, node_size=node_sizes, node_color="blue", alpha=0.4)
-    nx.draw_networkx_edges(G, positions, arrowstyle='->', arrowsize=15, edge_color="green", edge_labels=edge_labels, alpha=0.05, label_pos=0.3)
+    nx.draw_networkx_nodes(G,
+                           positions,
+                           with_labels=True,
+                           node_size=node_sizes,
+                           node_color="blue",
+                           alpha=0.4)
+    nx.draw_networkx_edges(G,
+                           positions,
+                           arrowstyle='->',
+                           arrowsize=15,
+                           edge_color="green",
+                           edge_labels=edge_labels,
+                           alpha=0.05,
+                           label_pos=0.3)
     nx.draw_networkx_labels(G, pos_higher, node_labels)
-    nx.draw_networkx_edge_labels(G, pos_higher, edge_labels=edge_labels, with_labels=True, label_pos=0.3)
+    nx.draw_networkx_edge_labels(G,
+                                 pos_higher,
+                                 edge_labels=edge_labels,
+                                 with_labels=True,
+                                 label_pos=0.3)
+
 
 def metagraph_summary(components, tblogger, run_prefix, step, hparams):
     figure = plt.figure(figsize=(10, 10))
@@ -119,6 +151,7 @@ def metagraph_summary(components, tblogger, run_prefix, step, hparams):
     _networkx(components)
     tblogger.log_plot('metagraph', step)
     plt.close()
+
 
 class TBLogger(object):
     """Logging in tensorboard without tensorflow ops."""
@@ -156,7 +189,6 @@ class TBLogger(object):
         # Create and write Summary
         summary = tf.Summary(value=[tf.Summary.Value(tag=tag, image=img_sum)])
         self.writer.add_summary(summary, step)
-
 
     def log_histogram(self, tag, values, step, bins=1000):
         """Logs the histogram of a list/vector of values."""

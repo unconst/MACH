@@ -26,6 +26,7 @@ import threading
 
 
 class Mach:
+
     def __init__(self, name, dataset, hparams, tblogger):
         """Initialize a Mach learning component.
         Args:
@@ -51,7 +52,7 @@ class Mach:
     def set_child(self, child):
         """Sets passed component as child.
         """
-        assert(type(child) == type(self))
+        assert (type(child) == type(self))
         self._child = child
 
     def start(self):
@@ -72,7 +73,9 @@ class Mach:
     def next_batch(self):
         # Get next training batch
 
-        if self._batch >= len(self._train): # self._train is already divided into batches here
+        if self._batch >= len(
+                self._train
+        ):  # self._train is already divided into batches here
             # epoch is done
             self._batch = 0
 
@@ -88,7 +91,6 @@ class Mach:
 
         return batch_x, batch_y
 
-
     def _run(self):
         """Loops train and test continually.
         """
@@ -99,10 +101,20 @@ class Mach:
             batch_x, batch_y = self.next_batch()
 
             # Train child.
-            self._run_graph(batch_x, batch_y, keep_prop=0.95, use_synthetic=False, do_train=True, do_metrics=False)
+            self._run_graph(batch_x,
+                            batch_y,
+                            keep_prop=0.95,
+                            use_synthetic=False,
+                            do_train=True,
+                            do_metrics=False)
 
             # Train synthetic net.
-            self._run_graph(batch_x, batch_y, keep_prop=0.95, use_synthetic=True, do_train=True, do_metrics=False)
+            self._run_graph(batch_x,
+                            batch_y,
+                            keep_prop=0.95,
+                            use_synthetic=True,
+                            do_train=True,
+                            do_metrics=False)
 
             # Validation and tensorboard logs.
             if step % self._hparams.n_print == 0:
@@ -111,46 +123,93 @@ class Mach:
                 tr_x, tr_y = self.next_batch()
                 val_x = [t[0] for t in self._test]
                 val_y = [t[1] for t in self._test]
-                syn_tr_out = self._run_graph(tr_x, tr_y, keep_prop=1.0, use_synthetic=True, do_train=False, do_metrics=True)
-                tr_out = self._run_graph(tr_x, tr_y, keep_prop=1.0, use_synthetic=False, do_train=False, do_metrics=True)
-                syn_val_out = self._run_graph(val_x, val_y, keep_prop=1.0, use_synthetic=True, do_train=False, do_metrics=True)
-                val_out = self._run_graph(val_x, val_y, keep_prop=1.0, use_synthetic=False, do_train=False, do_metrics=True)
+                syn_tr_out = self._run_graph(tr_x,
+                                             tr_y,
+                                             keep_prop=1.0,
+                                             use_synthetic=True,
+                                             do_train=False,
+                                             do_metrics=True)
+                tr_out = self._run_graph(tr_x,
+                                         tr_y,
+                                         keep_prop=1.0,
+                                         use_synthetic=False,
+                                         do_train=False,
+                                         do_metrics=True)
+                syn_val_out = self._run_graph(val_x,
+                                              val_y,
+                                              keep_prop=1.0,
+                                              use_synthetic=True,
+                                              do_train=False,
+                                              do_metrics=True)
+                val_out = self._run_graph(val_x,
+                                          val_y,
+                                          keep_prop=1.0,
+                                          use_synthetic=False,
+                                          do_train=False,
+                                          do_metrics=True)
 
                 # Accuracy metrics.
-                self._tblogger.log_scalar('validation accuracy using child', syn_val_out['accuracy'][0], step)
-                self._tblogger.log_scalar('validation accuracy using synthetic', val_out['accuracy'][0], step)
-                self._tblogger.log_scalar('training accuracy using synthetic', syn_tr_out['accuracy'][0], step)
-                self._tblogger.log_scalar('training_accuracy using child', tr_out['accuracy'][0], step)
+                self._tblogger.log_scalar('validation accuracy using child',
+                                          syn_val_out['accuracy'][0], step)
+                self._tblogger.log_scalar('validation accuracy using synthetic',
+                                          val_out['accuracy'][0], step)
+                self._tblogger.log_scalar('training accuracy using synthetic',
+                                          syn_tr_out['accuracy'][0], step)
+                self._tblogger.log_scalar('training_accuracy using child',
+                                          tr_out['accuracy'][0], step)
 
                 # Target loss.
-                self._tblogger.log_scalar('training target loss using synthetic', syn_tr_out['target_loss'][0], step)
-                self._tblogger.log_scalar('training target loss using child', tr_out['target_loss'][0], step)
+                self._tblogger.log_scalar(
+                    'training target loss using synthetic',
+                    syn_tr_out['target_loss'][0], step)
+                self._tblogger.log_scalar('training target loss using child',
+                                          tr_out['target_loss'][0], step)
 
                 # Synthetic loss.
-                self._tblogger.log_scalar('training synthetic loss', tr_out['synthetic_loss'], step)
-                self._tblogger.log_scalar('validation synthetic loss', val_out['synthetic_loss'], step)
+                self._tblogger.log_scalar('training synthetic loss',
+                                          tr_out['synthetic_loss'], step)
+                self._tblogger.log_scalar('validation synthetic loss',
+                                          val_out['synthetic_loss'], step)
 
                 # Inputs score.
-                self._tblogger.log_scalar('inputs pruning score', tr_out['inputs_pruning_score'][0], step)
-                self._tblogger.log_scalar('inputs absolute sum of gradients', tr_out['inputs_absolute_gradient'][0], step)
-                self._tblogger.log_scalar('inputs weight magnitude', tr_out['inputs_weight_magnitude'][0], step)
+                self._tblogger.log_scalar('inputs pruning score',
+                                          tr_out['inputs_pruning_score'][0],
+                                          step)
+                self._tblogger.log_scalar('inputs absolute sum of gradients',
+                                          tr_out['inputs_absolute_gradient'][0],
+                                          step)
+                self._tblogger.log_scalar('inputs weight magnitude',
+                                          tr_out['inputs_weight_magnitude'][0],
+                                          step)
 
                 # Downstream score.
-                self._tblogger.log_scalar('downstream pruning score', tr_out['downstream_pruning_score'][0], step)
-                self._tblogger.log_scalar('downstream absolute sum of gradients', tr_out['downstream_absolute_gradient'][0], step)
-                self._tblogger.log_scalar('downstream weight magnitude', tr_out['downstream_weight_magnitude'][0], step)
+                self._tblogger.log_scalar('downstream pruning score',
+                                          tr_out['downstream_pruning_score'][0],
+                                          step)
+                self._tblogger.log_scalar(
+                    'downstream absolute sum of gradients',
+                    tr_out['downstream_absolute_gradient'][0], step)
+                self._tblogger.log_scalar(
+                    'downstream weight magnitude',
+                    tr_out['downstream_weight_magnitude'][0], step)
 
                 # Downstream Integrate gradients.
-                self._tblogger.log_scalar('downstream integrated gradients score', syn_val_out['downstream_integrated_gradients_score'], step)
-                self._tblogger.log_scalar('inputs integrated gradients score',  syn_val_out['input_integrated_gradients_score'], step)
+                self._tblogger.log_scalar(
+                    'downstream integrated gradients score',
+                    syn_val_out['downstream_integrated_gradients_score'], step)
+                self._tblogger.log_scalar(
+                    'inputs integrated gradients score',
+                    syn_val_out['input_integrated_gradients_score'], step)
 
-
-                logger.info('{}: [val: {} - {}  tr: {} - {}]', self.name, val_out['accuracy'][0], syn_val_out['accuracy'][0], tr_out['accuracy'][0], syn_tr_out['accuracy'][0])
+                logger.info('{}: [val: {} - {}  tr: {} - {}]', self.name,
+                            val_out['accuracy'][0], syn_val_out['accuracy'][0],
+                            tr_out['accuracy'][0], syn_tr_out['accuracy'][0])
             if step > self._hparams.n_train_steps:
                 self.running = False
-            step+=1
+            step += 1
 
-    def _run_graph(self, spikes, targets, keep_prop, use_synthetic, do_train, do_metrics):
+    def _run_graph(self, spikes, targets, keep_prop, use_synthetic, do_train,
+                   do_metrics):
         """Runs the graph and returns fetch outputs.
 
         Args:
@@ -162,17 +221,17 @@ class Mach:
         """
 
         # Query child if exists.
-        cspikes =  np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
+        cspikes = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
         if self._child and not use_synthetic:
             cspikes = self._child.spike(spikes)
 
         # Build feeds.
         feeds = {
-            self._spikes: spikes, # Mnist 784 input.
-            self._cspikes: cspikes, # Child inputs.
-            self._targets: targets, # Mnist 1-hot Targets.
-            self._use_synthetic: use_synthetic, # Do we se synthetic inputs.
-            self._keep_rate: keep_prop, # Dropout.
+            self._spikes: spikes,  # Mnist 784 input.
+            self._cspikes: cspikes,  # Child inputs.
+            self._targets: targets,  # Mnist 1-hot Targets.
+            self._use_synthetic: use_synthetic,  # Do we se synthetic inputs.
+            self._keep_rate: keep_prop,  # Dropout.
         }
 
         # Build fetches.
@@ -180,24 +239,30 @@ class Mach:
 
         if do_train:
             fetches['target_step'] = self._tstep
-            fetches['synthetic_step'] = self._syn_step # Synthetic step.
+            fetches['synthetic_step'] = self._syn_step  # Synthetic step.
             fetches['child_gradients'] = self._tdgrads
 
         # We train the synthetic model when we query our child.
         if not use_synthetic:
-            fetches['synthetic_loss'] = self._syn_loss # Distillation loss.
+            fetches['synthetic_loss'] = self._syn_loss  # Distillation loss.
 
         if do_metrics:
-            fetches['accuracy'] = self._accuracy, # Classification accuracy.
-            fetches['target_loss'] = self._target_loss, # Target accuracy.
-            fetches['inputs_pruning_score'] = self._inputs_pruning_score, # Salience of inputs.
-            fetches['inputs_weight_magnitude'] =  self._inputs_weight_magnitude,
-            fetches['inputs_absolute_gradient'] = self._inputs_absolute_gradient,
-            fetches['downstream_pruning_score'] = self._downstream_pruning_score, # Salience of downstream.
-            fetches['downstream_weight_magnitude'] = self._downstream_weight_magnitude,
-            fetches['downstream_absolute_gradient'] = self._downstream_absolute_gradient,
+            fetches['accuracy'] = self._accuracy,  # Classification accuracy.
+            fetches['target_loss'] = self._target_loss,  # Target accuracy.
+            fetches[
+                'inputs_pruning_score'] = self._inputs_pruning_score,  # Salience of inputs.
+            fetches['inputs_weight_magnitude'] = self._inputs_weight_magnitude,
+            fetches[
+                'inputs_absolute_gradient'] = self._inputs_absolute_gradient,
+            fetches[
+                'downstream_pruning_score'] = self._downstream_pruning_score,  # Salience of downstream.
+            fetches[
+                'downstream_weight_magnitude'] = self._downstream_weight_magnitude,
+            fetches[
+                'downstream_absolute_gradient'] = self._downstream_absolute_gradient,
             fetches['input_integrated_gradients_score'] = self._input_ig
-            fetches['downstream_integrated_gradients_score'] = self._downstream_ig
+            fetches[
+                'downstream_integrated_gradients_score'] = self._downstream_ig
 
         # Run graph.
         run_output = self._session.run(fetches, feeds)
@@ -222,10 +287,10 @@ class Mach:
         # Return using synthetic inputs as input to this component.
         zeros = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
         feeds = {
-            self._spikes: spikes, # Mnist inputs.
-            self._cspikes: zeros, # Zeros from children (not used)
-            self._use_synthetic: True, # Use synthetic children.
-            self._keep_rate: 1.0, # No dropout.
+            self._spikes: spikes,  # Mnist inputs.
+            self._cspikes: zeros,  # Zeros from children (not used)
+            self._use_synthetic: True,  # Use synthetic children.
+            self._keep_rate: 1.0,  # No dropout.
         }
         # Return the embedding.
         return self._session.run(self._embedding, feeds)
@@ -243,11 +308,11 @@ class Mach:
 
         zeros = np.zeros((np.shape(spikes)[0], self._hparams.n_embedding))
         feeds = {
-            self._spikes: spikes, # Spikes from query.
-            self._egrads: grads, # Embedding gradients from parent.
-            self._cspikes: zeros, # Zeros from children.
-            self._use_synthetic: False, # Do not use Synthetic.
-            self._keep_rate: 1.0 # No Dropout.
+            self._spikes: spikes,  # Spikes from query.
+            self._egrads: grads,  # Embedding gradients from parent.
+            self._cspikes: zeros,  # Zeros from children.
+            self._use_synthetic: False,  # Do not use Synthetic.
+            self._keep_rate: 1.0  # No Dropout.
         }
         # Run the embedding step.
         self._session.run([self._estep], feeds)
@@ -261,89 +326,158 @@ class Mach:
 
         # Placeholders.
         # Spikes: inputs from the dataset of arbitrary batch_size.
-        self._spikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_inputs])
+        self._spikes = tf.compat.v1.placeholder(tf.float32,
+                                                [None, self._hparams.n_inputs])
         # Cspikes: inputs from previous component. Size is the same as the embeddings produced
         # by this component.
-        self._cspikes = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding])
+        self._cspikes = tf.compat.v1.placeholder(
+            tf.float32, [None, self._hparams.n_embedding])
         # Egrads: Gradient for this component's embedding, passed by a parent.
-        self._egrads = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_embedding])
+        self._egrads = tf.compat.v1.placeholder(
+            tf.float32, [None, self._hparams.n_embedding])
         # Targets: Supervised signals used during training and testing.
-        self._targets = tf.compat.v1.placeholder(tf.float32, [None, self._hparams.n_targets])
+        self._targets = tf.compat.v1.placeholder(
+            tf.float32, [None, self._hparams.n_targets])
         # use_synthetic: Flag, use synthetic downstream spikes.
-        self._use_synthetic = tf.compat.v1.placeholder(tf.bool, shape=[], name='use_synthetic')
+        self._use_synthetic = tf.compat.v1.placeholder(tf.bool,
+                                                       shape=[],
+                                                       name='use_synthetic')
         # dropout prob.
         self._keep_rate = tf.placeholder_with_default(1.0, shape=())
 
         # Synthetic weights and biases.
         syn_weights = {
-            'syn_w1': tf.Variable(tf.random.truncated_normal([self._hparams.n_inputs , self._hparams.n_shidden1], stddev=0.1)),
-            'syn_w2': tf.Variable(tf.random.truncated_normal([self._hparams.n_shidden1, self._hparams.n_shidden2], stddev=0.1)),
-            'syn_w3': tf.Variable(tf.random.truncated_normal([self._hparams.n_shidden2, self._hparams.n_embedding], stddev=0.1)),
+            'syn_w1':
+                tf.Variable(
+                    tf.random.truncated_normal(
+                        [self._hparams.n_inputs, self._hparams.n_shidden1],
+                        stddev=0.1)),
+            'syn_w2':
+                tf.Variable(
+                    tf.random.truncated_normal(
+                        [self._hparams.n_shidden1, self._hparams.n_shidden2],
+                        stddev=0.1)),
+            'syn_w3':
+                tf.Variable(
+                    tf.random.truncated_normal(
+                        [self._hparams.n_shidden2, self._hparams.n_embedding],
+                        stddev=0.1)),
         }
         syn_biases = {
-            'syn_b1': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_shidden1])),
-            'syn_b2': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_shidden2])),
-            'syn_b3': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding])),
+            'syn_b1':
+                tf.Variable(tf.constant(0.1, shape=[self._hparams.n_shidden1])),
+            'syn_b2':
+                tf.Variable(tf.constant(0.1, shape=[self._hparams.n_shidden2])),
+            'syn_b3':
+                tf.Variable(tf.constant(0.1,
+                                        shape=[self._hparams.n_embedding])),
         }
-        synthetic_network_variables = list(syn_weights.values()) + list(syn_biases.values())
+        synthetic_network_variables = list(syn_weights.values()) + list(
+            syn_biases.values())
 
         # Weights and biases
         weights = {
-            'w1': tf.Variable(tf.random.truncated_normal([self._hparams.n_inputs + self._hparams.n_embedding, self._hparams.n_hidden1], stddev=0.1)),
-            'w2': tf.Variable(tf.random.truncated_normal([self._hparams.n_hidden1, self._hparams.n_hidden2], stddev=0.1)),
-            'w3': tf.Variable(tf.random.truncated_normal([self._hparams.n_hidden2, self._hparams.n_embedding], stddev=0.1)),
-            'w4': tf.Variable(tf.random.truncated_normal([self._hparams.n_embedding, self._hparams.n_targets], stddev=0.1)),
-            }
+            'w1':
+                tf.Variable(
+                    tf.random.truncated_normal([
+                        self._hparams.n_inputs + self._hparams.n_embedding,
+                        self._hparams.n_hidden1
+                    ],
+                                               stddev=0.1)),
+            'w2':
+                tf.Variable(
+                    tf.random.truncated_normal(
+                        [self._hparams.n_hidden1, self._hparams.n_hidden2],
+                        stddev=0.1)),
+            'w3':
+                tf.Variable(
+                    tf.random.truncated_normal(
+                        [self._hparams.n_hidden2, self._hparams.n_embedding],
+                        stddev=0.1)),
+            'w4':
+                tf.Variable(
+                    tf.random.truncated_normal(
+                        [self._hparams.n_embedding, self._hparams.n_targets],
+                        stddev=0.1)),
+        }
         biases = {
-            'b1': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_hidden1])),
-            'b2': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_hidden2])),
-            'b3': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_embedding])),
-            'b4': tf.Variable(tf.constant(0.1, shape=[self._hparams.n_targets])),
+            'b1':
+                tf.Variable(tf.constant(0.1, shape=[self._hparams.n_hidden1])),
+            'b2':
+                tf.Variable(tf.constant(0.1, shape=[self._hparams.n_hidden2])),
+            'b3':
+                tf.Variable(tf.constant(0.1,
+                                        shape=[self._hparams.n_embedding])),
+            'b4':
+                tf.Variable(tf.constant(0.1, shape=[self._hparams.n_targets])),
         }
         local_network_variables = list(weights.values()) + list(biases.values())
 
         # Syn_embedding: The synthetic input, produced by distilling the child component with a local model.
-        syn_hidden1 = tf.nn.relu(tf.add(tf.matmul(self._spikes, syn_weights['syn_w1']), syn_biases['syn_b1']))
-        syn_hidden2 = tf.nn.relu(tf.add(tf.matmul(syn_hidden1, syn_weights['syn_w2']), syn_biases['syn_b2']))
-        syn_cspikes = tf.add(tf.matmul(syn_hidden2, syn_weights['syn_w3']), syn_biases['syn_b3'])
-        self._syn_loss = tf.reduce_mean(tf.nn.l2_loss(tf.stop_gradient(self._cspikes) - syn_cspikes))
+        syn_hidden1 = tf.nn.relu(
+            tf.add(tf.matmul(self._spikes, syn_weights['syn_w1']),
+                   syn_biases['syn_b1']))
+        syn_hidden2 = tf.nn.relu(
+            tf.add(tf.matmul(syn_hidden1, syn_weights['syn_w2']),
+                   syn_biases['syn_b2']))
+        syn_cspikes = tf.add(tf.matmul(syn_hidden2, syn_weights['syn_w3']),
+                             syn_biases['syn_b3'])
+        self._syn_loss = tf.reduce_mean(
+            tf.nn.l2_loss(tf.stop_gradient(self._cspikes) - syn_cspikes))
         tf.compat.v1.summary.scalar("syn_loss", self._syn_loss)
 
         # Switch between synthetic embedding or true_embedding
-        self._downstream = tf.cond(tf.equal(self._use_synthetic, tf.constant(True)),
-                              true_fn=lambda: syn_cspikes,
-                              false_fn=lambda: self._cspikes)
+        self._downstream = tf.cond(tf.equal(self._use_synthetic,
+                                            tf.constant(True)),
+                                   true_fn=lambda: syn_cspikes,
+                                   false_fn=lambda: self._cspikes)
 
         # Embedding: the embedding passes to the parent.
         self._input_layer = tf.concat([self._spikes, self._downstream], axis=1)
-        hidden_layer1 = tf.nn.relu(tf.add(tf.matmul(self._input_layer, weights['w1']), biases['b1']))
-        hidden_layer2 = tf.nn.relu(tf.add(tf.matmul(hidden_layer1, weights['w2']), biases['b2']))
+        hidden_layer1 = tf.nn.relu(
+            tf.add(tf.matmul(self._input_layer, weights['w1']), biases['b1']))
+        hidden_layer2 = tf.nn.relu(
+            tf.add(tf.matmul(hidden_layer1, weights['w2']), biases['b2']))
         drop_hidden_layer2 = tf.nn.dropout(hidden_layer2, self._keep_rate)
-        self._embedding = tf.nn.relu(tf.add(tf.matmul(drop_hidden_layer2, weights['w3']), biases['b3']))
-
+        self._embedding = tf.nn.relu(
+            tf.add(tf.matmul(drop_hidden_layer2, weights['w3']), biases['b3']))
 
         # Target: the mnist target.
-        self._logits = tf.add(tf.matmul(self._embedding, weights['w4']), biases['b4'])
-        self._target_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._targets, logits=self._logits))
+        self._logits = tf.add(tf.matmul(self._embedding, weights['w4']),
+                              biases['b4'])
+        self._target_loss = tf.reduce_mean(
+            tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._targets,
+                                                       logits=self._logits))
 
         # Optimizer: The optimizer for this component, could be different accross components.
-        optimizer = tf.compat.v1.train.AdamOptimizer(self._hparams.learning_rate)
+        optimizer = tf.compat.v1.train.AdamOptimizer(
+            self._hparams.learning_rate)
 
         # syn_grads: Gradient terms for the synthetic inputs.
-        self._syn_grads = optimizer.compute_gradients(loss=self._syn_loss + self._target_loss, var_list=synthetic_network_variables)
+        self._syn_grads = optimizer.compute_gradients(
+            loss=self._syn_loss + self._target_loss,
+            var_list=synthetic_network_variables)
 
         # Embedding grads: Here, we compute the gradient terms for the embedding with respect
         # to the gradients passed from the parent (a.k.a egrads). Dgrads is the gradient for
         # the downstream component (child) and elgrads are the gradient terms for the the local
         # FFNN.
-        self._cgrads = optimizer.compute_gradients(loss=self._embedding, var_list=[self._cspikes], grad_loss=self._egrads)[0][0]
-        self._elgrads = optimizer.compute_gradients(loss=self._embedding, var_list=local_network_variables, grad_loss=self._egrads)
+        self._cgrads = optimizer.compute_gradients(loss=self._embedding,
+                                                   var_list=[self._cspikes],
+                                                   grad_loss=self._egrads)[0][0]
+        self._elgrads = optimizer.compute_gradients(
+            loss=self._embedding,
+            var_list=local_network_variables,
+            grad_loss=self._egrads)
 
         # Gradients from target: Here, we compute the gradient terms for the downstream child and
         # the local variables but with respect to the target loss. These get sent downstream and used to
         # optimize the local variables.
-        self._tdgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=[self._cspikes])[0][0]
-        self._tlgrads = optimizer.compute_gradients(loss=self._target_loss, var_list=local_network_variables)
+        self._tdgrads = optimizer.compute_gradients(loss=self._target_loss,
+                                                    var_list=[self._cspikes
+                                                             ])[0][0]
+        self._tlgrads = optimizer.compute_gradients(
+            loss=self._target_loss, var_list=local_network_variables)
 
         # Syn step: Train step which applies the synthetic input grads to the synthetic input model.
         self._syn_step = optimizer.apply_gradients(self._syn_grads)
@@ -358,44 +492,60 @@ class Mach:
         # Metrics:
 
         # Accuracy
-        correct = tf.equal(tf.argmax(self._logits, 1), tf.argmax(self._targets, 1))
+        correct = tf.equal(tf.argmax(self._logits, 1),
+                           tf.argmax(self._targets, 1))
         self._accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
 
         # Input information score.
-        self._inputs_grads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._spikes)
-        self._inputs_absolute_gradient = tf.reduce_sum(tf.reduce_sum(tf.abs(self._inputs_grads[0][0])))
-        self._inputs_pruning_score = self._pruning_score(self._spikes, self._inputs_grads[0][0])
-        self._inputs_weight_magnitude = tf.reduce_sum(tf.reduce_sum(tf.slice(weights['w1'], [0, 0], [784, -1])))
+        self._inputs_grads = optimizer.compute_gradients(loss=self._target_loss,
+                                                         var_list=self._spikes)
+        self._inputs_absolute_gradient = tf.reduce_sum(
+            tf.reduce_sum(tf.abs(self._inputs_grads[0][0])))
+        self._inputs_pruning_score = self._pruning_score(
+            self._spikes, self._inputs_grads[0][0])
+        self._inputs_weight_magnitude = tf.reduce_sum(
+            tf.reduce_sum(tf.slice(weights['w1'], [0, 0], [784, -1])))
 
         # Downstream information score.
-        self._downstream_grads = optimizer.compute_gradients(loss=self._target_loss, var_list=self._downstream)
-        self._downstream_absolute_gradient = tf.reduce_sum(tf.reduce_sum(tf.abs(self._downstream_grads[0][0])))
-        self._downstream_pruning_score = self._pruning_score(self._downstream, self._downstream_grads[0][0])
-        self._downstream_weight_magnitude = tf.reduce_sum(tf.reduce_sum(tf.slice(weights['w1'], [784, 0], [-1, -1])))
+        self._downstream_grads = optimizer.compute_gradients(
+            loss=self._target_loss, var_list=self._downstream)
+        self._downstream_absolute_gradient = tf.reduce_sum(
+            tf.reduce_sum(tf.abs(self._downstream_grads[0][0])))
+        self._downstream_pruning_score = self._pruning_score(
+            self._downstream, self._downstream_grads[0][0])
+        self._downstream_weight_magnitude = tf.reduce_sum(
+            tf.reduce_sum(tf.slice(weights['w1'], [784, 0], [-1, -1])))
 
         # Integrated Gradients.
-        integrated_gradients = tf.abs(self._integrated_gradients(self._logits, self._input_layer, 10))
+        integrated_gradients = tf.abs(
+            self._integrated_gradients(self._logits, self._input_layer, 10))
         total_ig = tf.reduce_sum(integrated_gradients)
-        downstream_ig = tf.reduce_sum(tf.slice(integrated_gradients, [0, 784], [-1, -1]))
-        input_ig = tf.reduce_sum(tf.slice(integrated_gradients, [0, 0], [-1, 784]))
-        self._downstream_ig = downstream_ig/total_ig
-        self._input_ig = input_ig/total_ig
+        downstream_ig = tf.reduce_sum(
+            tf.slice(integrated_gradients, [0, 784], [-1, -1]))
+        input_ig = tf.reduce_sum(
+            tf.slice(integrated_gradients, [0, 0], [-1, 784]))
+        self._downstream_ig = downstream_ig / total_ig
+        self._input_ig = input_ig / total_ig
 
     def _integrated_gradients(self, target, input_tensor, steps):
         baseline = tf.zeros_like(input_tensor)
-        scaled_inputs = [baseline + (float(i)/steps)*(input_tensor - baseline) for i in range(0, steps+1)]
+        scaled_inputs = [
+            baseline + (float(i) / steps) * (input_tensor - baseline)
+            for i in range(0, steps + 1)
+        ]
 
         grads = []
         for next_inp in scaled_inputs:
             grads.append(tf.gradients(ys=target, xs=input_tensor)[0])
 
         trapazoidal_grads = []
-        for i in range(len(grads)-1):
-            trapazoidal_grads.append((grads[i] + grads[i+1])/2)
+        for i in range(len(grads) - 1):
+            trapazoidal_grads.append((grads[i] + grads[i + 1]) / 2)
 
-        avg_trapazoidal = tf.add_n(trapazoidal_grads)/len(grads)
+        avg_trapazoidal = tf.add_n(trapazoidal_grads) / len(grads)
         avg_grads = tf.reduce_mean(avg_trapazoidal, axis=0)
-        integrated_gradients = (input_tensor - baseline) * avg_grads  # shape: <inp.shape>
+        integrated_gradients = (input_tensor -
+                                baseline) * avg_grads  # shape: <inp.shape>
 
         return integrated_gradients
 
