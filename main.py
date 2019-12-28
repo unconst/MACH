@@ -9,6 +9,7 @@ import argparse
 from loguru import logger
 import threading
 import time
+import tensorflow as tf
 
 from model import Mach
 from utils import TBLogger
@@ -39,6 +40,7 @@ def main(hparams):
     # Build components.
     components = []
     for i in range(hparams.n_components):
+        
         # Load a unique dataset for each component.
         mnist_i, hparams = load_data_and_constants(hparams)
 
@@ -131,6 +133,11 @@ if __name__ == "__main__":
         type=int,
         help='Training steps. Default n_train_steps=1000000'
     )
+    parser.add_argument(
+        '--dataset',
+        default='mnist',
+        type=str,
+        help='Dataset on which to run the network. Default is mnist.')
 
     hparams = parser.parse_args()
 
