@@ -54,7 +54,7 @@ def prepare_dataset(dataset, batch_size, n_inputs, n_targets):
             train_batch.append([
                 train[i]['image'].reshape(1, n_inputs).astype(
                     np.float32).flatten(),
-                one_hot_encode(train[i]['label'], 10)
+                one_hot_encode(train[i]['label'], n_targets)
             ])
         train_set.append(train_batch)
 
